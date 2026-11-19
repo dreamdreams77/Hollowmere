@@ -373,3 +373,46 @@ function emblem(g, kind, id, pal) {
 }
 
 export const toURL = (c) => (c.toDataURL ? c.toDataURL() : '');
+
+// Heir portrait: a small illuminated miniature of the claimant. Veiled while unknown, crowned when
+// Genuine, masked when an Impostor. Painted in the same flat-pigment, ink-line manner.
+export function heirPortrait(house, status, w = 128, h = 160) {
+  const key = `heir:${house}:${status}:${w}`; if (cache.has(key)) return cache.get(key);
+  const c = canvas(w, h); const g = c.getContext('2d'); const H = HOUSES[house];
+  g.drawImage(lapisGround(w, h, house.length * 7 + (status === 'G' ? 3 : 1)), 0, 0);
+  g.save(); g.scale(w / 128, h / 160);
+  // arch frame
+  g.beginPath(); g.moveTo(10, 160); g.lineTo(10, 50); g.quadraticCurveTo(64, -10, 118, 50); g.lineTo(118, 160); g.closePath();
+  g.fillStyle = 'rgba(0,0,0,.18)'; g.fill();
+  // shoulders and robe in House colours
+  g.beginPath(); g.moveTo(14, 160); g.quadraticCurveTo(20, 110, 64, 104); g.quadraticCurveTo(108, 110, 114, 160); g.closePath();
+  g.fillStyle = H.colour; g.fill(); inkStroke(g, 3);
+  g.beginPath(); g.moveTo(52, 106); g.lineTo(64, 132); g.lineTo(76, 106); g.fillStyle = H.accent; g.fill(); inkStroke(g, 2);
+  // neck and head
+  g.beginPath(); g.rect(56, 88, 16, 20); g.fillStyle = '#e2b892'; g.fill(); inkStroke(g, 2);
+  g.beginPath(); g.ellipse(64, 70, 20, 25, 0, 0, Math.PI * 2); g.fillStyle = '#e8c39e'; g.fill(); inkStroke(g, 3);
+  if (status === '?') {
+    // a veil hides the face
+    g.beginPath(); g.moveTo(34, 112); g.quadraticCurveTo(30, 40, 64, 38); g.quadraticCurveTo(98, 40, 94, 112); g.quadraticCurveTo(64, 100, 34, 112);
+    g.fillStyle = 'rgba(235,228,212,.92)'; g.fill(); inkStroke(g, 2.5);
+    g.font = '40px "IM Fell English", Georgia, serif'; g.fillStyle = PIGMENT.ink; g.textAlign = 'center'; g.fillText('?', 64, 86);
+  } else {
+    g.fillStyle = PIGMENT.ink; for (const x of [56, 72]) { g.beginPath(); g.arc(x, 68, 2.4, 0, 7); g.fill(); }
+    g.beginPath(); g.moveTo(58, 82); g.quadraticCurveTo(64, 85, 70, 82); g.strokeStyle = PIGMENT.ink; g.lineWidth = 2; g.stroke();
+    g.beginPath(); g.moveTo(44, 62); g.quadraticCurveTo(46, 40, 64, 42); g.quadraticCurveTo(84, 40, 85, 62); g.quadraticCurveTo(76, 50, 64, 50); g.quadraticCurveTo(50, 50, 44, 62); g.fillStyle = '#5a3b22'; g.fill(); inkStroke(g, 2);
+    if (status === 'G') {
+      g.beginPath(); g.moveTo(44, 44); g.lineTo(46, 26); g.lineTo(55, 36); g.lineTo(64, 22); g.lineTo(73, 36); g.lineTo(82, 26); g.lineTo(84, 44); g.closePath();
+      g.fillStyle = g.createPattern(goldLeaf(64, 3), 'repeat'); g.fill(); inkStroke(g, 2.5);
+      g.fillStyle = PIGMENT.vermilion; g.beginPath(); g.arc(64, 34, 3, 0, 7); g.fill();
+      for (let k = 0; k < 9; k++) star(g, 18 + (k % 3) * 46, 18 + Math.floor(k / 3) * 12, 3, PIGMENT.goldLight);
+    } else {
+      g.beginPath(); g.moveTo(40, 62); g.quadraticCurveTo(64, 54, 88, 62); g.lineTo(86, 76); g.quadraticCurveTo(64, 70, 42, 76); g.closePath();
+      g.fillStyle = '#2d2a33'; g.fill(); inkStroke(g, 2);
+      g.fillStyle = PIGMENT.white; for (const x of [55, 73]) { g.beginPath(); g.ellipse(x, 68, 5, 3, 0, 0, 7); g.fill(); }
+      g.strokeStyle = PIGMENT.vermilion; g.lineWidth = 5; g.beginPath(); g.moveTo(20, 30); g.lineTo(108, 140); g.stroke();
+    }
+  }
+  g.restore();
+  g.strokeStyle = PIGMENT.ink; g.lineWidth = 3; g.strokeRect(1.5, 1.5, w - 3, h - 3);
+  cache.set(key, c); return c;
+}

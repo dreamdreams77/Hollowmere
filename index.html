@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#16235f">
+<title>Hollowmere</title>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles/main.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="world" aria-label="The Hollowmere board"></canvas>
+<div id="ui"></div>
+<div id="loading"><div><div class="lt">Hollow<span>mere</span></div><div class="ls" id="loadingText">The river is rising…</div></div></div>
+<noscript>Hollowmere needs JavaScript and WebGL.</noscript>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

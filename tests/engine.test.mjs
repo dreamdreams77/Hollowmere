@@ -529,3 +529,9 @@ test('audit: AI choices do not depend on hidden Heir status or deck order', asyn
   const top = (st) => rankActions(st, 3, { noise: 0 }).map((x) => x.a.type + ':' + x.score.toFixed(6)).join(',');
   assert.equal(top(r), top(q));
 });
+
+test('browser QA regression: view() keeps public Raid effects (whose "to" is a Plot)', () => {
+  const s = fresh(); s.plots[2].m[1] = 1; give(s, 0, { I: 1 });
+  act(s, { type: 'raid', from: 2, to: 3, target: 1, n: 1 });
+  for (let i = 0; i < 4; i++) assert.ok(E.view(s, i).fx.some((e) => e.t === 'raid'));
+});

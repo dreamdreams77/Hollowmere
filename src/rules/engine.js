@@ -63,7 +63,7 @@ function log(state, h, text, kind = 'info') {
   state.log.push({ n: ++state.seq, season: state.season, phase: state.phase, h: h == null ? null : h, text, kind });
   if (state.log.length > 400) state.log.splice(0, state.log.length - 400);
 }
-// e.to = [houses] limits who may see the details of an effect (see view()).
+// e.only = [houses] limits who may see the details of an effect (see view()).
 function fx(state, e) { state.fx.push({ ...e, n: ++state.seq }); if (state.fx.length > 200) state.fx.splice(0, state.fx.length - 200); }
 const hname = (state, i) => state.houses[i].name;
 export const markersOn = (state, pid, h) => state.plots[pid - 1].m[h] || 0;
@@ -432,7 +432,7 @@ export function applyAction(state, action, opts = {}) {
     case 'investigate': {
       pay(house, firstPayable(house, investigateCosts(house)));
       const c = drawInvestigation(state, house);
-      log(state, h, `${me} investigates.`, 'intrigue'); fx(state, { t: 'investigate', h, card: c, to: [h] });
+      log(state, h, `${me} investigates.`, 'intrigue'); fx(state, { t: 'investigate', h, card: c, only: [h] });
       break;
     }
     case 'play': {
@@ -463,7 +463,7 @@ export function applyAction(state, action, opts = {}) {
       } else {
         for (const k of [h, tgt.i]) if (!tgt.heir.knownBy.includes(k)) tgt.heir.knownBy.push(k);
         log(state, h, `${me}'s Seal tests ${tgt.name}'s Heir. The result is kept private.`, 'intrigue');
-        fx(state, { t: 'seal', h, target: tgt.i, result: 'G', to: [h, tgt.i] });
+        fx(state, { t: 'seal', h, target: tgt.i, result: 'G', only: [h, tgt.i] });
       }
       break;
     }
@@ -479,7 +479,7 @@ export function applyAction(state, action, opts = {}) {
       break;
     case 'cabal':
       house.coffer.C -= C.cabalCostCoin; house.cabalTokens++; state.plots[action.plot - 1].cabal = h;
-      log(state, h, `${me} moves in the shadows.`, 'intrigue'); fx(state, { t: 'cabal', h, plot: action.plot, to: [h] });
+      log(state, h, `${me} moves in the shadows.`, 'intrigue'); fx(state, { t: 'cabal', h, plot: action.plot, only: [h] });
       break;
     case 'vigil': {
       house.coffer.C -= 1; house.flags.vigil = true;
@@ -488,8 +488,8 @@ export function applyAction(state, action, opts = {}) {
       if (house.heir.status === 'I' && !house.married) {
         house.married = true; house.heirsLost++; newHeir(state, house);
         text += ' A marriage brings a second claimant into the line.';
-        fx(state, { t: 'vigil', h, result: 'remarried', to: [h] });
-      } else fx(state, { t: 'vigil', h, result: 'known', to: [h] });
+        fx(state, { t: 'vigil', h, result: 'remarried', only: [h] });
+      } else fx(state, { t: 'vigil', h, result: 'known', only: [h] });
       log(state, h, text, 'court');
       break;
     }
@@ -587,7 +587,7 @@ function castRite(state, h, a) {
   }
   if (HOUSES[me].riteRenown) gainRenown(state, h, HOUSES[me].riteRenown, 'Rites');
   log(state, h, text, 'magic');
-  fx(state, { t: 'rite', h, rite: rite.id, targets: a.targets || [], pressure: state.pressure });
+  fx(state, { t: 'rite', h, rite: rite.id, school: rite.school, targets: a.targets || [], pressure: state.pressure });
 }
 
 function endTurn(state) {
@@ -648,7 +648,7 @@ function harvest(state) {
   log(state, null, `Season ${state.season} Harvest: the dice show ${d[0]} and ${d[1]} (${n}). ${n === 7 ? 'Seven pays nothing.' : paid.length ? paid.join('; ') + '.' : 'No Plot answers.'}`, 'harvest');
   fx(state, { t: 'harvest', dice: d, sum: n, gains: pub, mods });
   const sable = state.houses.find((x) => HOUSES[x.name].cabal);
-  if (sable && JSON.stringify(gains[sable.i]) !== JSON.stringify(pub[sable.i])) fx(state, { t: 'cabalHarvest', h: sable.i, gains: gains[sable.i], to: [sable.i] });
+  if (sable && JSON.stringify(gains[sable.i]) !== JSON.stringify(pub[sable.i])) fx(state, { t: 'cabalHarvest', h: sable.i, gains: gains[sable.i], only: [sable.i] });
   // Wren (Open Court): up to two Accords for the Season with the Houses that border it most.
   const wren = state.houses.find((x) => HOUSES[x.name].accords);
   if (wren) {
@@ -858,7 +858,7 @@ function endGame(state) {
 export function view(state, viewer) {
   const s = clone(state);
   delete s.rng; s.riteDeck = s.riteDeck.length; s.riteDiscard = s.riteDiscard.length;
-  s.fx = s.fx.filter((e) => !e.to || e.to.includes(viewer));
+  s.fx = s.fx.filter((e) => !e.only || e.only.includes(viewer));
   for (const h of s.houses) {
     const knows = h.heir.revealed || h.heir.knownBy.includes(viewer);
     if (!knows) h.heir.status = '?';
