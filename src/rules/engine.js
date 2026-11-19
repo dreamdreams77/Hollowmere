@@ -22,7 +22,7 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
   const state = {
     v: 1, seed: String(seed), rng,
     season: 1, phase: 'harvest', round: 0, turn: 0,
-    houses: [], plots: PLOTS.map((p) => ({ id: p.id, m: {}, l: {}, contest: null, cabal: null })),
+    houses: [], plots: PLOTS.map((p) => ({ id: p.id, m: {}, l: {}, contests: [], cabal: null })),
     pressure: 0, riteDeck: R.shuffle(rng, RITES.map((r) => r.id)), riteDiscard: [],
     nextHarvest: [], eventLog: [], dice: null, log: [], fx: [], pending: null,
     floods: [], winner: null, final: null, seq: 0,
@@ -63,6 +63,7 @@ function log(state, h, text, kind = 'info') {
   state.log.push({ n: ++state.seq, season: state.season, phase: state.phase, h: h == null ? null : h, text, kind });
   if (state.log.length > 400) state.log.splice(0, state.log.length - 400);
 }
+// e.to = [houses] limits who may see the details of an effect (see view()).
 function fx(state, e) { state.fx.push({ ...e, n: ++state.seq }); if (state.fx.length > 200) state.fx.splice(0, state.fx.length - 200); }
 const hname = (state, i) => state.houses[i].name;
 export const markersOn = (state, pid, h) => state.plots[pid - 1].m[h] || 0;
@@ -85,7 +86,7 @@ function removeMarker(state, pid, h, n = 1) {
     delete p.m[h];
     // Legions are stationed on Plots their House holds; with the last marker gone they disband (R13).
     if (p.l[h]) { fx(state, { t: 'disband', plot: pid, h, n: p.l[h] }); delete p.l[h]; }
-    if (p.contest && p.contest.captor === h) p.contest = null;
+    p.contests = p.contests.filter((c) => c.captor !== h);
   }
 }
 function removeLegions(state, pid, h, n) {
@@ -126,18 +127,23 @@ function newHeir(state, house) {
 
 // Cost helpers that depend on the House.
 export function musterCost(house) { return HOUSES[house.name].muster || { I: 2, G: 1 }; }
+// Caddoc may pay Reed for any part of a Lore cost: every split of the Lore between Lore and Reed.
+function loreSplits(house, cost) {
+  if (!HOUSES[house.name].reedForLore || !cost.L) return [cost];
+  const out = [];
+  for (let reed = 0; reed <= cost.L; reed++) {
+    const c = { ...cost }; c.L = cost.L - reed; c.R = (cost.R || 0) + reed;
+    if (!c.L) delete c.L;
+    out.push(c);
+  }
+  return out;
+}
 export function investigateCosts(house) {
   const H = HOUSES[house.name];
   if (H.investigateCost) return [H.investigateCost];             // Raven free, Verrin 2 Grain
-  return H.reedForLore ? [{ L: 1 }, { R: 1 }] : [{ L: 1 }];       // Caddoc may pay Reed for Lore
+  return loreSplits(house, { L: 1 });                             // Caddoc may pay Reed for Lore
 }
-export function riteCosts(house, rite) {
-  const opts = [rite.cost];
-  if (HOUSES[house.name].reedForLore && rite.cost.L) {
-    const alt = { ...rite.cost }; alt.R = (alt.R || 0) + alt.L; delete alt.L; opts.push(alt);
-  }
-  return opts;
-}
+export function riteCosts(house, rite) { return loreSplits(house, rite.cost); }
 function firstPayable(house, opts) { return opts.find((c) => canPay(house, c)); }
 export const dynastyFavor = (house) => HOUSES[house.name].dynastyFavor || 3;
 export const tradeRate = (house) => (HOUSES[house.name].writ && !house.flags.writ ? 2 : 3);
@@ -240,7 +246,7 @@ export function whyNot(state, h, type) {
 
 // Every concrete, legal form of one action type for House h.
 export function optionsFor(state, h, type) {
-  if (state.phase !== 'actions' || state.turn !== h) return [];
+  if (state.phase !== 'actions' || state.turn !== h || state.pending) return [];
   const house = state.houses[h]; const H = HOUSES[house.name];
   const mine = heldPlots(state, h);
   const out = [];
@@ -275,7 +281,7 @@ export function optionsFor(state, h, type) {
     case 'recapture':
       if (!canPay(house, C.recaptureCost)) break;
       for (const p of state.plots) {
-        if (!p.contest || p.contest.victim !== h || !(p.m[p.contest.captor] > 0)) continue;
+        if (!p.contests.some((c) => c.victim === h && (p.m[c.captor] || 0) > 0)) continue;
         if (ADJ[p.id - 1].some((q) => holds(state, q, h) && legionsOn(state, q, h) > 0)) out.push({ type, plot: p.id });
       }
       break;
@@ -372,6 +378,7 @@ function normal(a) {
 export function checkAction(state, action) {
   const h = state.turn;
   if (state.phase !== 'actions') return { ok: false, reason: 'It is not the Action phase.' };
+  if (state.pending) return { ok: false, reason: 'A choice must be made first.' };
   if (!ACTION_TYPES.includes(action.type)) return { ok: false, reason: 'Unknown action.' };
   const opts = optionsFor(state, h, action.type);
   if (opts.some((o) => sameAction(o, action))) return { ok: true };
@@ -401,8 +408,11 @@ export function applyAction(state, action, opts = {}) {
     case 'raid': resolveRaid(state, h, action, opts); break;
     case 'recapture': {
       pay(house, C.recaptureCost);
-      const p = state.plots[action.plot - 1]; const captor = p.contest.captor;
-      removeMarker(state, action.plot, captor); addMarker(state, action.plot, h); p.contest = null;
+      const p = state.plots[action.plot - 1];
+      const ct = p.contests.find((c) => c.victim === h && (p.m[c.captor] || 0) > 0); const captor = ct.captor;
+      p.contests = p.contests.filter((c) => c !== ct);
+      removeMarker(state, action.plot, captor);
+      if (markersOn(state, action.plot, h) < C.keepCap) addMarker(state, action.plot, h);   // R28: never above a Keep
       log(state, h, `${me} recaptures ${P(action.plot)} from ${hname(state, captor)}.`, 'war');
       fx(state, { t: 'recapture', h, plot: action.plot, from: captor });
       break;
@@ -422,7 +432,7 @@ export function applyAction(state, action, opts = {}) {
     case 'investigate': {
       pay(house, firstPayable(house, investigateCosts(house)));
       const c = drawInvestigation(state, house);
-      log(state, h, `${me} investigates.`, 'intrigue'); fx(state, { t: 'investigate', h, card: c });
+      log(state, h, `${me} investigates.`, 'intrigue'); fx(state, { t: 'investigate', h, card: c, to: [h] });
       break;
     }
     case 'play': {
@@ -453,7 +463,7 @@ export function applyAction(state, action, opts = {}) {
       } else {
         for (const k of [h, tgt.i]) if (!tgt.heir.knownBy.includes(k)) tgt.heir.knownBy.push(k);
         log(state, h, `${me}'s Seal tests ${tgt.name}'s Heir. The result is kept private.`, 'intrigue');
-        fx(state, { t: 'seal', h, target: tgt.i, result: 'G' });
+        fx(state, { t: 'seal', h, target: tgt.i, result: 'G', to: [h, tgt.i] });
       }
       break;
     }
@@ -469,7 +479,7 @@ export function applyAction(state, action, opts = {}) {
       break;
     case 'cabal':
       house.coffer.C -= C.cabalCostCoin; house.cabalTokens++; state.plots[action.plot - 1].cabal = h;
-      log(state, h, `${me} moves in the shadows.`, 'intrigue'); fx(state, { t: 'cabal', h, plot: action.plot, secret: true });
+      log(state, h, `${me} moves in the shadows.`, 'intrigue'); fx(state, { t: 'cabal', h, plot: action.plot, to: [h] });
       break;
     case 'vigil': {
       house.coffer.C -= 1; house.flags.vigil = true;
@@ -478,8 +488,8 @@ export function applyAction(state, action, opts = {}) {
       if (house.heir.status === 'I' && !house.married) {
         house.married = true; house.heirsLost++; newHeir(state, house);
         text += ' A marriage brings a second claimant into the line.';
-        fx(state, { t: 'vigil', h, result: 'remarried' });
-      } else fx(state, { t: 'vigil', h, result: 'known' });
+        fx(state, { t: 'vigil', h, result: 'remarried', to: [h] });
+      } else fx(state, { t: 'vigil', h, result: 'known', to: [h] });
       log(state, h, text, 'court');
       break;
     }
@@ -501,8 +511,9 @@ function resolveRaid(state, h, a, opts) {
   const dLeg = legionsOn(state, a.to, tgt);
   const tp = state.plots[a.to - 1];
   const capture = () => {
-    removeMarker(state, a.to, tgt); addMarker(state, a.to, h);
-    if (!tp.contest) tp.contest = { victim: tgt, captor: h };
+    removeMarker(state, a.to, tgt);
+    if (markersOn(state, a.to, h) < C.keepCap) addMarker(state, a.to, h);   // R28: a capture never makes a third marker
+    if (!tp.contests.some((c) => c.victim === tgt && c.captor === h)) tp.contests.push({ victim: tgt, captor: h });
     house.stats.captures++; state.houses[tgt].stats.lost++;
   };
   if (!dLeg) {
@@ -512,11 +523,12 @@ function resolveRaid(state, h, a, opts) {
     return;
   }
   const am = HOUSES[me].skirmish || 0, dm = HOUSES[hname(state, tgt)].skirmish || 0;
+  const already = legionsOn(state, a.to, h);   // R26: the raider's Legions already on the Plot fight too
   const rolls = [];
-  let won;
+  let won = false;
   for (let guard = 0; guard < 50; guard++) {
     const ar = [R.d6(state.rng), R.d6(state.rng)], dr = [R.d6(state.rng), R.d6(state.rng)];
-    const at = ar[0] + ar[1] + Math.min(a.n, 3) + am, dt = dr[0] + dr[1] + Math.min(dLeg, 3) + dm;
+    const at = ar[0] + ar[1] + Math.min(a.n + already, 3) + am, dt = dr[0] + dr[1] + Math.min(dLeg, 3) + dm;
     rolls.push({ ar, dr, at, dt });
     if (at !== dt) { won = at > dt; break; }
   }
@@ -605,29 +617,38 @@ function harvest(state) {
   state.dice = d;
   const mods = state.nextHarvest; state.nextHarvest = [];
   const gains = state.houses.map(() => ({}));
+  const pub = state.houses.map(() => ({}));   // what rivals see: Cabal yield stays hidden until exposed
   if (n !== 7) {
     for (const p of PLOTS) {
       if (p.n !== n) continue;
       const plot = state.plots[p.id - 1];
       for (const h of state.houses) {
+        if (p.res === 'L' && HOUSES[h.name].noLore) continue;           // Verrin draws no Lore
         const m = plot.m[h.i] || 0;
-        let amt = m === 0 ? 0 : (m >= 2 ? m * 2 : m);  // one per marker; two per marker on a Keep
-        if (plot.cabal === h.i) amt += 1;               // a Cabal token produces like a marker
-        if (!amt) continue;
-        if (p.res === 'L' && HOUSES[h.name].noLore) continue;
-        let gain = { [p.res]: amt };
-        if (p.res === 'G' && HOUSES[h.name].granary && m > 0) gain.G += 1;   // Granary Law
-        if (mods.includes('spring_flood') && p.reach === 2) for (const r in gain) gain[r] *= 2;
-        if (mods.includes('dry_autumn') && gain.G) gain.G = Math.floor(gain.G / 2);
-        if (mods.includes('iron_winter') && gain.I) gain.I = Math.floor(gain.I / 2);
+        const cab = plot.cabal === h.i ? 1 : 0;                          // a Cabal token produces like a marker
+        const yieldOf = (markers, tokens) => {
+          let amt = (markers >= 2 ? markers * 2 : markers) + tokens;    // one per marker; two per marker on a Keep
+          if (!amt) return {};
+          const gain = { [p.res]: amt };
+          if (p.res === 'G' && HOUSES[h.name].granary && markers > 0) gain.G += 1;   // Granary Law
+          if (mods.includes('spring_flood') && p.reach === 2) for (const r in gain) gain[r] *= 2;
+          if (mods.includes('dry_autumn') && gain.G) gain.G = Math.floor(gain.G / 2);
+          if (mods.includes('iron_winter') && gain.I) gain.I = Math.floor(gain.I / 2);
+          return gain;
+        };
+        const gain = yieldOf(m, cab);
+        const seen = cab && !h.cabalExposed ? yieldOf(m, 0) : gain;
         for (const [r, a] of Object.entries(gain)) { h.coffer[r] += a; gains[h.i][r] = (gains[h.i][r] || 0) + a; h.stats.produced += a; }
+        for (const [r, a] of Object.entries(seen)) if (a) pub[h.i][r] = (pub[h.i][r] || 0) + a;
       }
     }
   }
   for (const h of state.houses) drawRite(state, h);
-  const paid = gains.map((g, i) => (Object.keys(g).length ? `${hname(state, i)} ${Object.entries(g).map(([r, a]) => `+${a} ${RES_NAME[r]}`).join(', ')}` : null)).filter(Boolean);
+  const paid = pub.map((g, i) => (Object.keys(g).length ? `${hname(state, i)} ${Object.entries(g).map(([r, a]) => `+${a} ${RES_NAME[r]}`).join(', ')}` : null)).filter(Boolean);
   log(state, null, `Season ${state.season} Harvest: the dice show ${d[0]} and ${d[1]} (${n}). ${n === 7 ? 'Seven pays nothing.' : paid.length ? paid.join('; ') + '.' : 'No Plot answers.'}`, 'harvest');
-  fx(state, { t: 'harvest', dice: d, sum: n, gains, mods });
+  fx(state, { t: 'harvest', dice: d, sum: n, gains: pub, mods });
+  const sable = state.houses.find((x) => HOUSES[x.name].cabal);
+  if (sable && JSON.stringify(gains[sable.i]) !== JSON.stringify(pub[sable.i])) fx(state, { t: 'cabalHarvest', h: sable.i, gains: gains[sable.i], to: [sable.i] });
   // Wren (Open Court): up to two Accords for the Season with the Houses that border it most.
   const wren = state.houses.find((x) => HOUSES[x.name].accords);
   if (wren) {
@@ -732,6 +753,8 @@ function succession(state, i) {
   if (heir.status === 'G') {
     log(state, i, `${h.name}'s Genuine Heir takes the Dynasty.`, 'court');
     if (HOUSES[h.name].successionBonus) gainRenown(state, i, C.thorneSuccessionBonus, 'Succession');
+    h.heirsCrowned = (h.heirsCrowned || 0) + 1;
+    newHeir(state, h);   // R23: the Heir now holds the Dynasty; the line needs a new, hidden Heir
     fx(state, { t: 'succession', h: i, result: 'G' });
   } else {
     h.dynasty = false; gainRenown(state, i, -C.impostorPenalty, 'Impostor');
@@ -817,7 +840,8 @@ export function standings(state) {
 }
 
 function endGame(state) {
-  for (const h of state.houses) if (h.heir.revealed && h.heir.status === 'G') gainRenown(state, h.i, C.genuineHeirEndRenown, 'Genuine Heir');
+  // A revealed Genuine Heir scores 4 (D4). One that already took the Dynasty counts as revealed (R23). Once per House.
+  for (const h of state.houses) if ((h.heir.revealed && h.heir.status === 'G') || h.heirsCrowned) gainRenown(state, h.i, C.genuineHeirEndRenown, 'Genuine Heir');
   const st = standings(state);
   const top = st[0];
   const winners = st.filter((x) => x.renown === top.renown && x.markers === top.markers && x.wealth === top.wealth).map((x) => x.i);
@@ -834,10 +858,14 @@ function endGame(state) {
 export function view(state, viewer) {
   const s = clone(state);
   delete s.rng; s.riteDeck = s.riteDeck.length; s.riteDiscard = s.riteDiscard.length;
+  s.fx = s.fx.filter((e) => !e.to || e.to.includes(viewer));
   for (const h of s.houses) {
-    if (h.i === viewer) { h.heirPile = h.heirPile.length; h.invDeck = h.invDeck.length; continue; }
-    if (!h.heir.revealed && !h.heir.knownBy.includes(viewer)) h.heir.status = '?';
-    h.rites = h.rites.length; h.invHand = h.invHand.length; h.heirPile = h.heirPile.length; h.invDeck = h.invDeck.length;
+    const knows = h.heir.revealed || h.heir.knownBy.includes(viewer);
+    if (!knows) h.heir.status = '?';
+    if (!h.heir.revealed) h.heir.knownBy = h.heir.knownBy.includes(viewer) ? h.heir.knownBy.filter((k) => k === viewer || k === h.i) : [];
+    h.heirPile = h.heirPile.length; h.invDeck = h.invDeck.length;
+    if (h.i === viewer) continue;
+    h.rites = h.rites.length; h.invHand = h.invHand.length; h.invDiscard = h.invDiscard.length;
     if (!h.cabalExposed) { h.cabalTokens = '?'; for (const p of s.plots) if (p.cabal === h.i) p.cabal = null; }
   }
   return s;

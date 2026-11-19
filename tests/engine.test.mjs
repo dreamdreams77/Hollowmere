@@ -97,7 +97,7 @@ test('Raid undefended: walk in, capture one marker, mark the Plot contested', ()
   act(s, { type: 'raid', from: 2, to: 3, target: 1, n: 1 });
   assert.equal(E.markersOn(s, 3, 0), 1); assert.equal(E.markersOn(s, 3, 1), 0);
   assert.equal(E.legionsOn(s, 3, 0), 1); assert.equal(E.legionsOn(s, 2, 0), 0);
-  assert.deepEqual(s.plots[2].contest, { victim: 1, captor: 0 });
+  assert.deepEqual(s.plots[2].contests, [{ victim: 1, captor: 0 }]);
   assert.equal(s.houses[0].coffer.I, 0);
 });
 
@@ -135,7 +135,7 @@ test('Recapture: victim with an adjacent Legion flips the marker back for 1 Iron
   give(s, 1, { I: 1, G: 1 });
   act(s, { type: 'recapture', plot: 3 });
   assert.equal(E.markersOn(s, 3, 1), 1); assert.equal(E.markersOn(s, 3, 0), 0);
-  assert.equal(s.plots[2].contest, null);
+  assert.deepEqual(s.plots[2].contests, []);
   assert.equal(E.legionsOn(s, 3, 0), 0, "the captor's Legions disband with its last marker there");
 });
 
@@ -351,7 +351,7 @@ test('Succession: Genuine keeps the Dynasty (Thorne +3); Impostor costs 2 and th
     let c;
     for (let k = 0; k < 500; k++) { c = E.clone(s); c.rng = { s: k }; E.advance(c); if (c.floods[0].deaths.length) break; }
     assert.ok(c.floods[0].deaths.includes(0));
-    if (status === 'G') { assert.ok(c.houses[0].dynasty); assert.equal(c.houses[0].renownBy.Succession, 3); assert.ok(c.houses[0].heir.revealed); }
+    if (status === 'G') { assert.ok(c.houses[0].dynasty); assert.equal(c.houses[0].renownBy.Succession, 3); assert.equal(c.houses[0].heirsCrowned, 1); }
     else { assert.ok(!c.houses[0].dynasty); assert.equal(c.houses[0].renownBy.Impostor, -2); }
   }
 });
@@ -453,4 +453,79 @@ test('human Wren is asked for Accords and the choice is enforced', () => {
 test('pips: 6 and 8 are 5 in 36, 2 and 12 are 1 in 36', () => {
   assert.deepEqual([pips(6), pips(8), pips(2), pips(12), pips(7)], [5, 5, 1, 1, 0]);
   void C;
+});
+
+// ---- regression tests from the independent rules audit
+test('audit: a capture never makes a third marker (Keep cap)', () => {
+  const s = fresh();
+  s.plots[0].m[0] = 2; s.plots[0].m[1] = 1; s.plots[0].l = { 0: 0 }; s.plots[1].l[0] = 1;
+  delete s.plots[0].l[0];
+  give(s, 0, { I: 1 });
+  act(s, { type: 'raid', from: 2, to: 1, target: 1, n: 1 });
+  assert.equal(E.markersOn(s, 1, 0), 2); assert.equal(E.markersOn(s, 1, 1), 0);
+});
+
+test('audit: each victim keeps its own right to Recapture on a shared Plot', () => {
+  const s = fresh(['Ash', 'Verrin', 'Wren', 'Raven']);
+  s.plots[2].m = { 1: 1, 2: 1 }; s.plots[1].l[0] = 2;
+  give(s, 0, { I: 2 });
+  act(s, { type: 'raid', from: 2, to: 3, target: 1, n: 1 });
+  s.turn = 0; s.plots[1].l[0] = 1;
+  act(s, { type: 'raid', from: 2, to: 3, target: 2, n: 1 });
+  assert.equal(s.plots[2].contests.length, 2);
+  s.plots[3].m[2] = 1; s.plots[3].l[2] = 1; s.turn = 2; give(s, 2, { I: 1, G: 1 });
+  assert.equal(E.optionsFor(s, 2, 'recapture').length, 1);
+});
+
+test('audit: Caddoc may split a Lore cost between Lore and Reed', () => {
+  const s = fresh(['Caddoc', 'Ash', 'Maelor', 'Verrin']);
+  s.houses[0].rites = ['ink_of_names']; give(s, 0, { L: 1, R: 1 });
+  assert.equal(E.optionsFor(s, 0, 'rite').length, 1);
+  act(s, E.optionsFor(s, 0, 'rite')[0]);
+  assert.equal(s.houses[0].coffer.L + s.houses[0].coffer.R, 0);
+});
+
+test('audit: no Action while a choice is pending', () => {
+  const s = E.newGame({ houses: ['Wren', 'Ash'], humans: ['Wren'], seed: 'w', seatOrder: ['Wren', 'Ash'] });
+  assert.equal(E.checkAction(s, { type: 'pass' }).ok, false);
+  assert.equal(E.legalActions(s).length, 0);
+});
+
+test('audit: view() hides own unknown Heir, deck order, private fx and the Cabal', () => {
+  const s = fresh(['Raven', 'Sable', 'Wren', 'Ash']);
+  s.houses[0].invHand = ['seal']; give(s, 0, { L: 1 }); s.houses[2].heir.status = 'G';
+  act(s, { type: 'seal', target: 2 });
+  give(s, 1, { C: 1 }); act(s, { type: 'cabal', plot: 5 });
+  const v3 = E.view(s, 3);
+  assert.equal(v3.houses[3].heir.status, '?');
+  assert.equal(v3.houses[2].heir.status, '?');
+  assert.deepEqual(v3.houses[2].heir.knownBy, []);
+  assert.ok(!v3.fx.some((e) => e.t === 'seal' && e.result) && !v3.fx.some((e) => e.t === 'cabal'));
+  assert.ok(v3.plots.every((p) => p.cabal == null));
+  assert.equal(typeof v3.houses[0].invDeck, 'number');
+  assert.equal(E.view(s, 2).houses[2].heir.status, 'G');
+});
+
+test('audit: a Genuine succession draws a new hidden Heir and the crowned Heir still scores 4', () => {
+  const s = fresh(['Thorne', 'Ash', 'Maelor', 'Raven']);
+  s.houses[0].dynasty = true; s.houses[0].heir.status = 'G';
+  s.season = 3; s.phase = 'flood';
+  let c;
+  for (let k = 0; k < 500; k++) { c = E.clone(s); c.rng = { s: k }; E.advance(c); if (c.floods[0].deaths.length) break; }
+  assert.equal(c.houses[0].heir.serial, 2); assert.equal(c.houses[0].heirsCrowned, 1);
+  c.season = 12; c.phase = 'flood'; c.houses[0].dynasty = false; E.advance(c);
+  assert.equal(c.houses[0].renownBy['Genuine Heir'], 4);
+});
+
+test('audit: AI choices do not depend on hidden Heir status or deck order', async () => {
+  const { rankActions } = await import('../src/ai/ai.js');
+  const s = fresh(['Thorne', 'Ash', 'Maelor', 'Raven']);
+  give(s, 0, { C: 2, G: 1 });
+  const rank = (status) => { const c = E.clone(s); c.houses[0].heir.status = status; return rankActions(c, 0, { noise: 0 }).map((x) => x.a.type + ':' + x.score.toFixed(6)).join(','); };
+  assert.equal(rank('G'), rank('I'));
+  const r = E.clone(s); r.turn = 3; r.houses[3].invDeck = ['seal', ...r.houses[3].invDeck.filter((c) => c !== 'seal')].reverse();
+  const q = E.clone(r); q.houses[3].invDeck = q.houses[3].invDeck.slice().reverse();
+  give(r, 3, { L: 1 }); give(q, 3, { L: 1 });
+  const top = (st) => rankActions(st, 3, { noise: 0 }).map((x) => x.a.type + ':' + x.score.toFixed(6)).join(',');
+  assert.equal(top(r), top(q));
 });

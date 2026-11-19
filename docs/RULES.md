@@ -51,6 +51,18 @@ are exactly those in `HOW_TO_PLAY.md` and the reference sheet, with the decision
 | R21 | Investigate when Raven draws | Phase 3 "draws 3 keeps 2" vs D6 "draws one". | One card (D6). |
 | R22 | Sable's secret Renown, Seal +1 Lore for Sable, Ash production -1, Caddoc halved Keeps | Phase 3 only; dropped by later versions. | Not used. |
 
+| R23 | A Genuine Heir that takes the Dynasty | Not stated whether a new Heir follows. Without one the same Heir could "succeed" at every death. | The crowned Heir becomes the holder; a new Heir is drawn face down from the pile. The crowned Genuine still scores its 4 at the end (once per House). |
+| R24 | Caddoc's halved Pressure | Phase 3: "halved (rounded down)"; reference sheet: "Halved Pressure"; cards already print a half flame. | Exact halves on the Pressure track (a 1-flame Rite adds 0.5). |
+| R25 | Defenders "lose half" after a failed Raid | Rounding not stated. | Rounded down (a lone defender survives). |
+| R26 | Raider's Legions already on the target Plot | "add their Legions on the Plot". | They fight too (still at most 3 counted). Only the moved Legions are halved on a win. |
+| R27 | Maelor's Muster | "2 Iron, 1 Grain (Maelor 3 Iron)". | 3 Iron and 1 Grain: the parenthesis changes only the Iron. |
+| R28 | Capturing on a Plot where the captor already has a Keep | Keeps are capped at two markers. | The rival loses its marker; the captor gains none. Each victim keeps its own Recapture right on a shared Plot. |
+
+An independent review (a separate agent reading only the sources and the code) found and confirmed
+the issues behind R23 and R26-R28, plus four information leaks (the AI could simulate its own
+hidden Heir and deck order; the viewer state exposed private Seal results, draws and the Cabal).
+All are fixed and covered by regression tests.
+
 ## Known balance status
 
 `tools/sim.mjs` plays AI against AI. The design's own last measured results put every House inside

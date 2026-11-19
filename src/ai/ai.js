@@ -143,16 +143,24 @@ function resWeight(me, r) {
 }
 
 // Strip what h cannot know before simulating on a copy.
+// Hidden things are replaced: unknown Heirs (rivals' and its own) become a neutral guess,
+// deck order is reshuffled, and a rival's hidden Cabal is removed.
 function belief(state, h, salt) {
   const s = { ...state, log: [], fx: [] };
   const c = E.clone(s);
   c.rng = { s: R.hashSeed(`${state.seed}:${state.seq}:${h}:${salt}`) };
+  c.riteDeck = R.shuffle(c.rng, c.riteDeck);
   for (const x of c.houses) {
+    x.invDeck = R.shuffle(c.rng, x.invDeck);
+    x.heirPile = R.shuffle(c.rng, x.heirPile);
+    if (!x.heir.revealed && !x.heir.knownBy.includes(h)) x.heir.status = 'G';
     if (x.i === h) continue;
     if (!x.cabalExposed) for (const p of c.plots) if (p.cabal === x.i) p.cabal = null;
   }
   return c;
 }
+// Chance a House's unknown Heir is Genuine, from what is public: one Genuine among the cards left.
+function pGenuine(house) { return 1 / (house.heirPile.length + 1); }
 
 const BONUS = {
   // Small per-House leanings so styles show on the board even when values are close.
@@ -186,10 +194,10 @@ export function rankActions(state, h = state.turn, { noise = 0.15 } = {}) {
       score = p * sw + (sl == null ? 0 : (1 - p) * sl) + w.raid * (def ? 0.5 : 0.8) * w.aggression;
     } else if (a.type === 'seal' || (a.type === 'rite' && a.rite === 'ink_of_names')) {
       // Expected value without peeking at the hidden Heir.
-      const after = applyOn(base, a, h, {}, true);
+      const after = applyOn(base, a, h, {});
       const tgt = a.target != null ? state.houses[a.target] : null;
       const known = tgt && tgt.heir.knownBy.includes(h);
-      const pImp = known ? (tgt.heir.status === 'I' ? 1 : 0) : 0.8;
+      const pImp = known ? (tgt.heir.status === 'I' ? 1 : 0) : tgt ? 1 - pGenuine(tgt) : 0.8;
       score = after + pImp * C.sealRenown * (a.type === 'seal' ? 1 : 0.9);
       if (a.type === 'seal' && known) score -= 3;     // testing a Heir you already know is wasted
     } else if (a.type === 'play' && a.card === 'witness') {
@@ -204,11 +212,14 @@ export function rankActions(state, h = state.turn, { noise = 0.15 } = {}) {
   return scored;
 }
 
-function applyOn(base, a, h, opts = {}, blindHeirs = false) {
-  const c = E.clone(base);
-  if (blindHeirs) for (const x of c.houses) if (x.i !== h && !x.heir.knownBy.includes(h) && !x.heir.revealed) x.heir.status = 'G'; // neutral: no Renown in the copy
-  E.applyAction(c, a, opts);
-  return value(c, h);
+// Value after action a. If h does not know its own Heir, average the Genuine and Impostor worlds.
+function applyOn(base, a, h, opts = {}) {
+  const me = base.houses[h];
+  const ownUnknown = !me.heir.revealed && !me.heir.knownBy.includes(h);
+  const once = (status) => { const c = E.clone(base); if (status) c.houses[h].heir.status = status; E.applyAction(c, a, opts); return value(c, h); };
+  if (!ownUnknown || !(a.type === 'vigil' || me.dynasty || a.type === 'dynasty')) return once(null);
+  const p = pGenuine(me);
+  return p * once('G') + (1 - p) * once('I');
 }
 
 export function chooseAction(state, h = state.turn, opts) {
