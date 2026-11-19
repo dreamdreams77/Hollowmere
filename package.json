@@ -1,0 +1,16 @@
+{
+  "name": "hollowmere",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hollowmere: a 2-4 player, twelve-Season fantasy political strategy game, rendered with three.js r170 (pinned to lemo-opuscar's version).",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "sim": "node tools/sim.mjs",
+    "serve": "node tools/serve.mjs",
+    "vendor": "node tools/vendor.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  }
+}

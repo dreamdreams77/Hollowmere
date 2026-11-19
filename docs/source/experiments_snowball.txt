@@ -1,0 +1,20 @@
+
+[leader]
+current rules                              leader wins after Flood 3:   77%   6:   87%   9:   90%
+escalating mid Floods (2, 3, 4)            leader wins after Flood 3:   63%   6:   85%   9:   91%
+bigger finale (first 9, second 4)          leader wins after Flood 3:   75%   6:   85%   9:   88%
+escalating + bigger finale                 leader wins after Flood 3:   61%   6:   83%   9:   89%
+underdog Favor 2 after each Flood          leader wins after Flood 3:   76%   6:   87%   9:   90%
+escalating + finale + underdog Favor 2     leader wins after Flood 3:   60%   6:   83%   9:   89%
+
+[houses]
+current rules                              Houses 21.2% to 27.9%  outside 20-30: none
+escalating mid Floods (2, 3, 4)            Houses 21.3% to 27.9%  outside 20-30: none
+bigger finale (first 9, second 4)          Houses 20.0% to 27.4%  outside 20-30: none
+escalating + bigger finale                 Houses 20.1% to 27.1%  outside 20-30: none
+underdog Favor 2 after each Flood          Houses 22.2% to 27.0%  outside 20-30: none
+frontier discount (fewest markers, no Stone) Houses 21.5% to 26.8%  outside 20-30: none
+escalating + finale + underdog Favor 2     Houses 21.1% to 27.1%  outside 20-30: none
+
+[leader]
+frontier discount (fewest markers, no Stone) leader wins after Flood 3:   80%   6:   89%   9:   92%
