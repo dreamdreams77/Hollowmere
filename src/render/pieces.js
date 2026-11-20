@@ -84,6 +84,19 @@ function shrineGeo() {
   k.sphere(0.07, '#a9a3b8', [0, 0.92, 0], 1, 8);
   const g = k.build(); geoCache.set(key, g); return g;
 }
+function curtainGeo() {
+  const key = 'curtain'; if (geoCache.has(key)) return geoCache.get(key);
+  const k = new Kit(); const r = 1.95, n = 14;
+  for (let i = 0; i < n; i++) {
+    const a0 = i / n * Math.PI * 2, a1 = (i + 1) / n * Math.PI * 2; if (i === 3) continue;   // a gate facing south
+    const a = [Math.cos(a0) * r, Math.sin(a0) * r], b = [Math.cos(a1) * r, Math.sin(a1) * r];
+    const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2, len = Math.hypot(b[0] - a[0], b[1] - a[1]), ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    k.box(len + 0.05, 0.5, 0.16, '#b8ad96', [mx, 0.25, mz], [0, -ang, 0]);
+    k.crenels(a, b, 0.5, '#a39a88', 0.1, 2);
+    if (i % 3 === 0) k.cyl(0.17, 0.2, 0.75, '#c2b79f', [a[0], 0.37, a[1]], 8);
+  }
+  const g = k.build(); geoCache.set(key, g); return g;
+}
 function bladesGeo() {
   const key = 'blades'; if (geoCache.has(key)) return geoCache.get(key);
   const k = new Kit();
@@ -117,7 +130,7 @@ export class Pieces {
     this.scene = scene; this.group = new THREE.Group(); this.group.name = 'pieces'; scene.add(this.group);
     this.houses = houses;                  // [{i, name}]
     this.sites = new Map();                // `${plot}:${h}` -> {group, kind, squads:[], banner}
-    this.cabals = new Map(); this.blades = new Map();
+    this.cabals = new Map(); this.blades = new Map(); this.walls = new Map();
     this.tweens = [];
   }
   slotPos(plot, h) {
@@ -143,6 +156,14 @@ export class Pieces {
       const lamp = new THREE.PointLight('#b49cff', 1.6, 3.5, 2); lamp.position.y = 0.9; o.add(lamp);
       o.position.set(x, heightAt(x, z), z); this.group.add(o); this.cabals.set(pid, o);
       if (animate) { o.scale.setScalar(0.01); this.tween(o, { s: 1 }, 0.8); }
+    }
+    // walls raised by Fortify (Expanded rules)
+    const walled = new Map(view.rules === 'expanded' ? view.plots.filter((p) => p.walls != null).map((p) => [p.id, p.walls]) : []);
+    for (const [pid, o] of this.walls) if (walled.get(pid) !== o.userData.h) { this.group.remove(o); this.walls.delete(pid); }
+    for (const [pid, h] of walled) if (!this.walls.has(pid)) {
+      const o = mesh(curtainGeo()); const pos = this.slotPos(pid, h); o.position.copy(pos); o.userData.h = h;
+      this.group.add(o); this.walls.set(pid, o);
+      if (animate) { o.scale.set(1, 0.01, 1); this.tweens.push({ obj: o, from: { y: pos.y, s: 1 }, to: { y: pos.y }, t: 0, dur: 0.9, done: () => o.scale.set(1, 1, 1), grow: true }); }
     }
     // contested Plots
     const contested = new Set(view.plots.filter((p) => (p.contests || []).length).map((p) => p.id));
@@ -200,7 +221,8 @@ export class Pieces {
       tw.t += dt; if (tw.t < 0) continue;
       const k = ease(Math.min(1, tw.t / tw.dur));
       if (tw.to.y != null) tw.obj.position.y = tw.from.y + (tw.to.y - tw.from.y) * k;
-      if (tw.to.s != null) tw.obj.scale.setScalar(tw.from.s + (tw.to.s - tw.from.s) * k);
+      if (tw.grow) tw.obj.scale.y = Math.max(0.01, k);
+      else if (tw.to.s != null) tw.obj.scale.setScalar(tw.from.s + (tw.to.s - tw.from.s) * k);
       if (tw.t >= tw.dur && tw.done) { tw.done(); tw.done = null; }
     }
     this.tweens = this.tweens.filter((tw) => tw.t < tw.dur);

@@ -6,13 +6,15 @@ import {
   INVESTIGATION, INVESTIGATION_DECK, SEATS_FOR, pips, plotById,
 } from './data.js';
 import * as R from './rng.js';
+import { dn, LORE, TRAIT_IDS, EPITHETS, heirName, lordName } from '../content/lore.js';
 
 const C = CONFIG;
+export const FORTIFY_COST = { S: 1, T: 1 };   // Expanded rules X3
 export const clone = (s) => JSON.parse(JSON.stringify(s));
 
 // ---------------------------------------------------------------- setup
 
-export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = null } = {}) {
+export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = null, rules = 'original' } = {}) {
   if (!houses || houses.length < 2 || houses.length > 4) throw new Error('Hollowmere is for 2 to 4 Houses');
   if (new Set(houses).size !== houses.length) throw new Error('each House may be played once');
   const rng = { s: R.hashSeed(seed) };
@@ -20,7 +22,7 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
   // "Houses are dealt to the four seats A to D at random."
   const dealt = seatOrder ? seatOrder.slice() : R.shuffle(rng, houses);
   const state = {
-    v: 1, seed: String(seed), rng,
+    v: 2, seed: String(seed), rng, rules,
     season: 1, phase: 'harvest', round: 0, turn: 0,
     houses: [], plots: PLOTS.map((p) => ({ id: p.id, m: {}, l: {}, contests: [], cabal: null })),
     pressure: 0, riteDeck: R.shuffle(rng, RITES.map((r) => r.id)), riteDiscard: [],
@@ -41,9 +43,12 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
       cabalTokens: 0, cabalExposed: false,
       flags: {}, ritesSeason: 0, ritesSinceReset: 0, ritesTotal: 0,
       skirmishReaches: [], accords: [], married: false,
+      lord: null, regard: {}, pacts: [], oaths: 0,
       stats: { builds: 0, raids: 0, skirmishWon: 0, skirmishLost: 0, captures: 0, lost: 0, produced: 0, passes: 0, seals: 0, exposed: 0 },
     });
   });
+  // Every House is ruled by a named lord with a trait (story; the AI reads the trait).
+  for (const h of state.houses) { h.lord = newLord(state, h); for (const o of state.houses) if (o.i !== h.i) h.regard[o.i] = 0; }
   // Setup step 2: two markers on the seat Plots, one Legion on each (Thorne: one marker).
   for (const h of state.houses) {
     let seatPlots = PLOTS.filter((p) => p.seat === h.seat).map((p) => p.id);
@@ -52,8 +57,72 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
     // Setup step 4: two Rite cards.
     for (let k = 0; k < C.riteOpeningHand; k++) drawRite(state, h);
   }
-  log(state, null, `Twelve Seasons begin. ${state.houses.map((h) => `${h.name} holds seat ${h.seat}`).join(', ')}.`);
+  log(state, null, `Twelve Seasons begin. ${state.houses.map((h) => `${dn(h.name)} holds seat ${h.seat}`).join(', ')}.`);
   advance(state);
+  return state;
+}
+
+// ---------------------------------------------------------------- lords, regard, pacts (story + Expanded rules)
+
+function newLord(state, house, given) {
+  const L = LORE[house.name];
+  return { given: given || R.pick(state.rng, L.given), epithet: R.pick(state.rng, EPITHETS), trait: R.pick(state.rng, TRAIT_IDS), since: state.season || 1 };
+}
+export const expanded = (state) => state.rules === 'expanded';
+export function shiftRegard(state, from, toward, d) {
+  if (from === toward || from == null || toward == null) return;
+  const r = state.houses[from].regard; r[toward] = Math.max(-5, Math.min(5, (r[toward] || 0) + d));
+}
+export const pactWith = (state, a, b) => state.houses[a].pacts.find((p) => p.with === b) || null;
+function endPact(state, a, b) {
+  state.houses[a].pacts = state.houses[a].pacts.filter((p) => p.with !== b);
+  state.houses[b].pacts = state.houses[b].pacts.filter((p) => p.with !== a);
+}
+// Breaking a Pact (Expanded rules X4): the oathbreaker loses 1 Renown and 2 Favor, and every House
+// thinks less of it, the betrayed most of all.
+function breakOath(state, h, victim) {
+  if (!pactWith(state, h, victim)) return;
+  endPact(state, h, victim);
+  const house = state.houses[h]; house.oaths++;
+  gainRenown(state, h, -1, 'Oathbreaking'); house.favor = Math.max(0, house.favor - 2);
+  for (const o of state.houses) if (o.i !== h) shiftRegard(state, o.i, h, o.i === victim ? -4 : -2);
+  log(state, h, `${dn(house.name)} breaks its Pact with ${dn(state.houses[victim].name)}. The river remembers oathbreakers.`, 'court');
+  fx(state, { t: 'oathbreak', h, victim });
+}
+// Would AI-ruled House j accept a Pact from h? Deterministic, so a proposer can foresee the answer.
+export function pactScore(state, j, h, gift) {
+  const J = state.houses[j], Hh = state.houses[h];
+  let s = (J.regard[h] || 0) + (gift ? 1.5 : 0);
+  const near = heldPlots(state, j).some((pid) => ADJ[pid - 1].some((q) => legionsOn(state, q, h) > 0));
+  if (near) s += 1.5;                                                     // fear of the proposer's Legions
+  const lead = Math.max(...state.houses.filter((x) => x.i !== h).map((x) => x.renown));
+  if (Hh.renown > lead + 4) s -= 2;                                       // nobody helps the runaway leader
+  if (Hh.oaths) s -= 1.5 * Hh.oaths;                                      // a known oathbreaker
+  const tr = J.lord?.trait;
+  if (tr === 'treacherous') s += 2; if (tr === 'honourable') s += 0.5; if (tr === 'cautious') s += 1;
+  if (tr === 'bold') s -= 1; if (tr === 'proud' && Hh.renown >= J.renown) s -= 1.5;
+  return s;
+}
+export const pactAccepts = (state, j, h, gift) => pactScore(state, j, h, gift) >= 0.5;
+function formPact(state, a, b, gift) {
+  const until = state.season + 1;
+  state.houses[a].pacts.push({ with: b, until }); state.houses[b].pacts.push({ with: a, until });
+  if (gift) { state.houses[a].coffer[gift]--; state.houses[b].coffer[gift]++; }
+  shiftRegard(state, a, b, 2); shiftRegard(state, b, a, 2);
+  log(state, a, `${dn(state.houses[a].name)} and ${dn(state.houses[b].name)} swear a Pact until the end of Season ${until}${gift ? `, sealed with a gift of ${RES_NAME[gift]}` : ''}.`, 'court');
+  fx(state, { t: 'pact', h: a, with: b });
+}
+
+// Bring a saved state from an older version up to date.
+export function migrate(state) {
+  if (!state.rules) state.rules = 'original';
+  for (const h of state.houses) {
+    if (!h.lord) h.lord = newLord(state, h);
+    if (!h.regard) { h.regard = {}; for (const o of state.houses) if (o.i !== h.i) h.regard[o.i] = 0; }
+    if (!h.pacts) h.pacts = []; if (h.oaths == null) h.oaths = 0;
+  }
+  for (const p of state.plots) { if (!p.contests) p.contests = p.contest ? [p.contest] : []; delete p.contest; }
+  state.v = 2;
   return state;
 }
 
@@ -65,7 +134,7 @@ function log(state, h, text, kind = 'info') {
 }
 // e.only = [houses] limits who may see the details of an effect (see view()).
 function fx(state, e) { state.fx.push({ ...e, n: ++state.seq }); if (state.fx.length > 200) state.fx.splice(0, state.fx.length - 200); }
-const hname = (state, i) => state.houses[i].name;
+const hname = (state, i) => dn(state.houses[i].name);   // display name for the chronicle
 export const markersOn = (state, pid, h) => state.plots[pid - 1].m[h] || 0;
 export const legionsOn = (state, pid, h) => state.plots[pid - 1].l[h] || 0;
 export const holds = (state, pid, h) => markersOn(state, pid, h) > 0;
@@ -87,6 +156,7 @@ function removeMarker(state, pid, h, n = 1) {
     // Legions are stationed on Plots their House holds; with the last marker gone they disband (R13).
     if (p.l[h]) { fx(state, { t: 'disband', plot: pid, h, n: p.l[h] }); delete p.l[h]; }
     p.contests = p.contests.filter((c) => c.captor !== h);
+    if (p.walls === h) p.walls = null;
   }
 }
 function removeLegions(state, pid, h, n) {
@@ -174,12 +244,13 @@ function takeRandom(state, from, to, n) {
 
 export const ACTION_TYPES = [
   'build', 'keep', 'muster', 'raid', 'recapture', 'trade', 'favor', 'investigate', 'play',
-  'seal', 'reveal', 'rite', 'dynasty', 'cabal', 'vigil', 'pass',
+  'seal', 'reveal', 'rite', 'dynasty', 'cabal', 'vigil', 'toil', 'fortify', 'envoy', 'pass',
 ];
+export const EXPANDED_TYPES = ['toil', 'fortify', 'envoy'];
 export const ACTION_LABEL = {
   build: 'Build', keep: 'Keep', muster: 'Muster', raid: 'Raid', recapture: 'Recapture', trade: 'Trade',
   favor: 'Claim Favor', investigate: 'Investigate', play: 'Play Card', seal: 'Seal', reveal: 'Reveal Heir',
-  rite: 'Rite', dynasty: 'Dynasty', cabal: 'Cabal', vigil: 'Vigil', pass: 'Pass',
+  rite: 'Rite', dynasty: 'Dynasty', cabal: 'Cabal', vigil: 'Vigil', toil: 'Toil', fortify: 'Fortify', envoy: 'Envoy', pass: 'Pass',
 };
 
 // Why an action type cannot be taken right now, or null if at least one form of it can.
@@ -197,7 +268,7 @@ export function whyNot(state, h, type) {
       if (type === 'keep') return mine.length ? 'Every Plot you hold already has a Keep.' : 'You hold no Plot.';
       return mine.length ? 'No empty Plot touches one of yours.' : 'You hold no Plot to build from.';
     case 'muster':
-      if (H.musterFrom && state.season < H.musterFrom) return `${house.name} cannot Muster before Season ${H.musterFrom}.`;
+      if (H.musterFrom && state.season < H.musterFrom) return `${dn(house.name)} cannot Muster before Season ${H.musterFrom}.`;
       if (!canPay(house, musterCost(house))) return `Needs ${costText(musterCost(house))}.`;
       return `Every Plot you hold already has ${C.legionCapPerPlot} Legions.`;
     case 'raid':
@@ -239,6 +310,18 @@ export function whyNot(state, h, type) {
       if (house.flags.vigil) return 'Vigil already kept this Season.';
       if (house.heir.knownBy.includes(h)) return 'You already know your Heir.';
       return 'Needs 1 Coin.';
+    case 'toil':
+      if (!expanded(state)) return 'Only in the Expanded rules.';
+      return house.flags.toil ? 'You have already toiled this Season.' : 'You hold no Plot to work.';
+    case 'fortify':
+      if (!expanded(state)) return 'Only in the Expanded rules.';
+      if (!canPay(house, FORTIFY_COST)) return 'Needs 1 Stone and 1 Timber.';
+      return 'Every Plot you hold is already walled.';
+    case 'envoy':
+      if (!expanded(state)) return 'Only in the Expanded rules.';
+      if (house.coffer.C < 1) return 'Needs 1 Coin.';
+      if ((house.flags.envoy || 0) >= (H.vigil ? 2 : 1)) return 'You have already sent your Envoys this Season.';
+      return 'You already have a Pact with every rival.';
     case 'pass': return null;
     default: return 'Unknown action.';
   }
@@ -324,6 +407,27 @@ export function optionsFor(state, h, type) {
     case 'vigil':
       if (H.vigil && !house.flags.vigil && !house.heir.knownBy.includes(h) && house.coffer.C >= 1) out.push({ type });
       break;
+    case 'toil': {
+      if (!expanded(state) || house.flags.toil) break;
+      // X1: a House with two Plots or fewer has its smallfolk's every skill to call on: any resource.
+      const kinds = mine.length <= 2 ? new Set(RES.filter((r) => !(r === 'L' && H.noLore))) : new Set(mine.map((pid) => plotById(pid).res).filter((r) => !(r === 'L' && H.noLore)));
+      for (const r of RES) if (kinds.has(r)) out.push({ type, res: r });
+      break;
+    }
+    case 'fortify':
+      if (!expanded(state) || !canPay(house, FORTIFY_COST)) break;
+      for (const pid of mine) if (state.plots[pid - 1].walls == null) out.push({ type, plot: pid });
+      break;
+    case 'envoy':
+      // X6: Rosenvael (Thorne), the oldest blood, sends Envoys for nothing and twice a Season.
+      const envoyFree = !!H.vigil, envoyMax = H.vigil ? 2 : 1;
+      if (!expanded(state) || (!envoyFree && house.coffer.C < 1) || (house.flags.envoy || 0) >= envoyMax) break;
+      for (const x of state.houses) {
+        if (x.i === h || pactWith(state, h, x.i)) continue;
+        out.push({ type, target: x.i, gift: null });
+        for (const r of RES) if (house.coffer[r] >= (r === 'C' ? 2 : 1)) out.push({ type, target: x.i, gift: r });
+      }
+      break;
     case 'pass': out.push({ type }); break;
   }
   return out;
@@ -363,7 +467,8 @@ export function legalActions(state, h = state.turn) {
   return ACTION_TYPES.flatMap((t) => optionsFor(state, h, t));
 }
 export function actionCatalog(state, h = state.turn) {
-  return ACTION_TYPES.filter((t) => t !== 'seal' || HOUSES[state.houses[h].name].seal)
+  return ACTION_TYPES.filter((t) => expanded(state) || !EXPANDED_TYPES.includes(t))
+    .filter((t) => t !== 'seal' || HOUSES[state.houses[h].name].seal)
     .filter((t) => t !== 'cabal' || HOUSES[state.houses[h].name].cabal)
     .filter((t) => t !== 'vigil' || HOUSES[state.houses[h].name].vigil)
     .map((t) => { const options = optionsFor(state, h, t); return { type: t, label: ACTION_LABEL[t], ok: options.length > 0, reason: options.length ? null : whyNot(state, h, t), options }; });
@@ -390,7 +495,7 @@ export function checkAction(state, action) {
 export function applyAction(state, action, opts = {}) {
   const chk = checkAction(state, action);
   if (!chk.ok) throw new Error(`Illegal action ${action.type}: ${chk.reason}`);
-  const h = state.turn; const house = state.houses[h]; const me = house.name;
+  const h = state.turn; const house = state.houses[h]; const me = dn(house.name);
   const P = (pid) => plotById(pid).name;
   switch (action.type) {
     case 'build':
@@ -419,7 +524,7 @@ export function applyAction(state, action, opts = {}) {
     }
     case 'trade': {
       const rate = tradeRate(house);
-      if (HOUSES[me].writ && rate === 2) house.flags.writ = true;
+      if (HOUSES[house.name].writ && rate === 2) house.flags.writ = true;
       house.coffer[action.give] -= rate; house.coffer[action.get] += 1;
       log(state, h, `${me} trades ${rate} ${RES_NAME[action.give]} for 1 ${RES_NAME[action.get]}${rate === 2 ? " (Merchant's Writ)" : ''}.`);
       fx(state, { t: 'trade', h, give: action.give, get: action.get, rate });
@@ -442,8 +547,9 @@ export function applyAction(state, action, opts = {}) {
       if (action.card === 'witness') {
         const t = richestRival(state, h);
         const got = t == null ? [] : takeRandom(state, t, h, 1);
+        if (t != null) shiftRegard(state, t, h, -1);
         let extra = '';
-        if (t != null && HOUSES[hname(state, t)].cabal && state.houses[t].cabalTokens && !state.houses[t].cabalExposed) {
+        if (t != null && HOUSES[state.houses[t].name].cabal && state.houses[t].cabalTokens && !state.houses[t].cabalExposed) {
           state.houses[t].cabalExposed = true; extra = ' The Sable Cabal is exposed.';
         }
         log(state, h, `${me} calls a Witness against ${t == null ? 'no one' : hname(state, t)}${got.length ? ` and takes 1 ${RES_NAME[got[0]]}` : ''}.${extra}`, 'intrigue');
@@ -456,13 +562,14 @@ export function applyAction(state, action, opts = {}) {
       house.stats.seals++;
       const tgt = state.houses[action.target];
       if (tgt.heir.status === 'I') {
-        log(state, h, `${me}'s Seal exposes ${tgt.name}'s Heir as an Impostor.`, 'intrigue');
+        log(state, h, `${me}'s Seal exposes ${dn(tgt.name)}'s Heir as an Impostor.`, 'intrigue');
+        shiftRegard(state, tgt.i, h, -2);
         gainRenown(state, h, C.sealRenown, 'Seals'); house.stats.exposed++;
         tgt.heirsLost++; newHeir(state, tgt);
         fx(state, { t: 'seal', h, target: tgt.i, result: 'I' });
       } else {
         for (const k of [h, tgt.i]) if (!tgt.heir.knownBy.includes(k)) tgt.heir.knownBy.push(k);
-        log(state, h, `${me}'s Seal tests ${tgt.name}'s Heir. The result is kept private.`, 'intrigue');
+        log(state, h, `${me}'s Seal tests ${dn(tgt.name)}'s Heir. The result is kept private.`, 'intrigue');
         fx(state, { t: 'seal', h, target: tgt.i, result: 'G', only: [h, tgt.i] });
       }
       break;
@@ -493,6 +600,28 @@ export function applyAction(state, action, opts = {}) {
       log(state, h, text, 'court');
       break;
     }
+    case 'toil':
+      house.flags.toil = true; house.coffer[action.res] += 1;
+      log(state, h, `${me} puts its people to work: +1 ${RES_NAME[action.res]}.`); fx(state, { t: 'toil', h, res: action.res });
+      break;
+    case 'fortify':
+      pay(house, FORTIFY_COST); state.plots[action.plot - 1].walls = h;
+      log(state, h, `${me} raises walls at ${P(action.plot)}.`); fx(state, { t: 'fortify', h, plot: action.plot });
+      break;
+    case 'envoy': {
+      if (!HOUSES[house.name].vigil) house.coffer.C -= 1;
+      house.flags.envoy = (house.flags.envoy || 0) + 1;
+      const tgt = state.houses[action.target];
+      if (tgt.human) {
+        state.pending = { type: 'pact', h: tgt.i, from: h, gift: action.gift };
+        log(state, h, `${me} sends an Envoy to ${dn(tgt.name)} offering a Pact${action.gift ? ` and a gift of ${RES_NAME[action.gift]}` : ''}.`, 'court');
+      } else if (pactAccepts(state, tgt.i, h, action.gift)) formPact(state, h, tgt.i, action.gift);
+      else {
+        shiftRegard(state, h, tgt.i, -1);
+        log(state, h, `${me}'s Envoy is turned away by ${dn(tgt.name)}.`, 'court'); fx(state, { t: 'refused', h, by: tgt.i });
+      }
+      break;
+    }
     case 'pass': {
       const paid = house.coffer.C >= C.passCostCoin ? C.passCostCoin : 0;
       house.coffer.C -= paid; house.stats.passes++;
@@ -505,30 +634,33 @@ export function applyAction(state, action, opts = {}) {
 }
 
 function resolveRaid(state, h, a, opts) {
-  const house = state.houses[h]; const me = house.name; const tgt = a.target; const reach = plotById(a.to).reach;
+  const house = state.houses[h]; const me = dn(house.name); const tgt = a.target; const reach = plotById(a.to).reach;
   house.coffer.I -= 1; house.stats.raids++;
+  if (pactWith(state, h, tgt)) breakOath(state, h, tgt);
+  shiftRegard(state, tgt, h, -2);
   removeLegions(state, a.from, h, a.n);
   const dLeg = legionsOn(state, a.to, tgt);
   const tp = state.plots[a.to - 1];
+  const walls = expanded(state) && tp.walls === tgt ? 1 : 0;   // X3: walls defend even an empty Plot
   const capture = () => {
     removeMarker(state, a.to, tgt);
     if (markersOn(state, a.to, h) < C.keepCap) addMarker(state, a.to, h);   // R28: a capture never makes a third marker
     if (!tp.contests.some((c) => c.victim === tgt && c.captor === h)) tp.contests.push({ victim: tgt, captor: h });
     house.stats.captures++; state.houses[tgt].stats.lost++;
   };
-  if (!dLeg) {
+  if (!dLeg && !walls) {
     addLegion(state, a.to, h, a.n); capture();
     log(state, h, `${me} raids ${plotById(a.to).name}, finds it undefended, and takes a marker from ${hname(state, tgt)}.`, 'war');
     fx(state, { t: 'raid', h, from: a.from, to: a.to, target: tgt, n: a.n, defended: false, won: true });
     return;
   }
-  const am = HOUSES[me].skirmish || 0, dm = HOUSES[hname(state, tgt)].skirmish || 0;
+  const am = HOUSES[house.name].skirmish || 0, dm = HOUSES[state.houses[tgt].name].skirmish || 0;
   const already = legionsOn(state, a.to, h);   // R26: the raider's Legions already on the Plot fight too
   const rolls = [];
   let won = false;
   for (let guard = 0; guard < 50; guard++) {
     const ar = [R.d6(state.rng), R.d6(state.rng)], dr = [R.d6(state.rng), R.d6(state.rng)];
-    const at = ar[0] + ar[1] + Math.min(a.n + already, 3) + am, dt = dr[0] + dr[1] + Math.min(dLeg, 3) + dm;
+    const at = ar[0] + ar[1] + Math.min(a.n + already, 3) + am, dt = dr[0] + dr[1] + Math.min(dLeg, 3) + dm + walls;
     rolls.push({ ar, dr, at, dt });
     if (at !== dt) { won = at > dt; break; }
   }
@@ -545,11 +677,12 @@ function resolveRaid(state, h, a, opts) {
     house.stats.skirmishLost++; state.houses[tgt].stats.skirmishWon++;
     log(state, h, `${me}'s Raid on ${plotById(a.to).name} is thrown back (${rolls.at(-1).at} to ${rolls.at(-1).dt}).`, 'war');
   }
-  fx(state, { t: 'raid', h, from: a.from, to: a.to, target: tgt, n: a.n, defended: true, dLeg, won, rolls, am, dm });
+  if (won) shiftRegard(state, tgt, h, -1);
+  fx(state, { t: 'raid', h, from: a.from, to: a.to, target: tgt, n: a.n, defended: true, dLeg, won, rolls, am, dm, walls });
 }
 
 function castRite(state, h, a) {
-  const house = state.houses[h]; const rite = riteById[a.rite]; const me = house.name;
+  const house = state.houses[h]; const rite = riteById[a.rite]; const me = dn(house.name);
   pay(house, firstPayable(house, riteCosts(house, rite)));
   house.rites.splice(house.rites.indexOf(a.rite), 1); state.riteDiscard.push(a.rite);
   const p = riteMaker(house, rite);
@@ -564,6 +697,7 @@ function castRite(state, h, a) {
     case 'mist_veil': case 'drowned_choir': {
       const t = richestRival(state, h);
       const got = t == null ? [] : takeRandom(state, t, h, rite.id === 'mist_veil' ? 1 : 2);
+      if (t != null) shiftRegard(state, t, h, -1);
       if (t != null) text += ` ${got.map((r) => RES_NAME[r]).join(' and ') || 'Nothing'} slips from ${hname(state, t)}'s Coffer.`;
       break;
     }
@@ -571,21 +705,21 @@ function castRite(state, h, a) {
       for (const t of a.targets) { addMarker(state, t.plot, h); text += ` A marker drifts ashore at ${plotById(t.plot).name}.`; }
       break;
     case 'heron_cry': case 'ashen_pyre':
-      for (const t of a.targets) { removeMarker(state, t.plot, t.house); text += ` ${hname(state, t.house)} loses a marker at ${plotById(t.plot).name}.`; }
+      for (const t of a.targets) { if (pactWith(state, h, t.house)) breakOath(state, h, t.house); shiftRegard(state, t.house, h, -2); removeMarker(state, t.plot, t.house); text += ` ${hname(state, t.house)} loses a marker at ${plotById(t.plot).name}.`; }
       break;
     case 'ink_of_names': {
       const cands = state.houses.filter((x) => x.i !== h && !x.heir.revealed);
       if (cands.length) {
         const t = R.pick(state.rng, cands);
         if (t.heir.status === 'I') {
-          text += ` ${t.name}'s Heir is unmasked as an Impostor.`; gainRenown(state, h, C.sealRenown, 'Rites');
+          text += ` ${dn(t.name)}'s Heir is unmasked as an Impostor.`; gainRenown(state, h, C.sealRenown, 'Rites');
           t.heirsLost++; newHeir(state, t);
-        } else { t.heir.revealed = true; t.heir.knownBy = state.houses.map((x) => x.i); text += ` ${t.name}'s Heir is shown to be Genuine.`; }
+        } else { t.heir.revealed = true; t.heir.knownBy = state.houses.map((x) => x.i); text += ` ${dn(t.name)}'s Heir is shown to be Genuine.`; }
       }
       break;
     }
   }
-  if (HOUSES[me].riteRenown) gainRenown(state, h, HOUSES[me].riteRenown, 'Rites');
+  if (HOUSES[house.name].riteRenown) gainRenown(state, h, HOUSES[house.name].riteRenown, 'Rites');
   log(state, h, text, 'magic');
   fx(state, { t: 'rite', h, rite: rite.id, school: rite.school, targets: a.targets || [], pressure: state.pressure });
 }
@@ -613,6 +747,10 @@ export function advance(state) {
 
 function harvest(state) {
   for (const h of state.houses) { h.flags = {}; h.ritesSeason = 0; h.accords = []; }
+  for (const h of state.houses) for (const p of h.pacts.slice()) if (p.until < state.season) {
+    endPact(state, h.i, p.with); shiftRegard(state, h.i, p.with, 1); shiftRegard(state, p.with, h.i, 1);
+    log(state, h.i, `The Pact between ${dn(h.name)} and ${dn(state.houses[p.with].name)} ends, kept to the last day.`, 'court');
+  }
   const d = [R.d6(state.rng), R.d6(state.rng)]; const n = d[0] + d[1];
   state.dice = d;
   const mods = state.nextHarvest; state.nextHarvest = [];
@@ -670,8 +808,9 @@ export function accordCandidates(state, w) {
 }
 function formAccords(state, w, partners) {
   state.houses[w].accords = partners.slice(0, HOUSES.Wren.accords);
+  for (const p of state.houses[w].accords) { shiftRegard(state, w, p, 1); shiftRegard(state, p, w, 1); }
   if (partners.length) {
-    log(state, w, `Wren signs Accords with ${partners.map((p) => hname(state, p)).join(' and ')} for the Season.`, 'court');
+    log(state, w, `Bramwell signs Accords with ${partners.map((p) => hname(state, p)).join(' and ')} for the Season.`, 'court');
     fx(state, { t: 'accord', h: w, partners });
   }
 }
@@ -680,6 +819,12 @@ function formAccords(state, w, partners) {
 export function decide(state, choice) {
   const p = state.pending;
   if (!p) throw new Error('Nothing to decide.');
+  if (p.type === 'pact') {
+    state.pending = null;
+    if (choice.accept) formPact(state, p.from, p.h, p.gift);
+    else { shiftRegard(state, p.from, p.h, -1); log(state, p.h, `${dn(state.houses[p.h].name)} refuses the Pact offered by ${dn(state.houses[p.from].name)}.`, 'court'); }
+    return advance(state);
+  }
   if (p.type === 'accords') {
     const picks = [...new Set(choice.partners || [])].filter((x) => p.options.some((o) => o.house === x)).slice(0, p.max);
     state.pending = null;
@@ -699,14 +844,14 @@ function eventPhase(state) {
     case 'coronation_feast': H.forEach((h) => { h.coffer.G++; h.coffer.C++; }); text += 'Every House gains 1 Grain and 1 Coin.'; break;
     case 'harvest_moon': {
       const got = H.filter((h) => heldPlots(state, h.i).length >= 3); got.forEach((h) => h.favor++);
-      text += got.length ? `${got.map((h) => h.name).join(', ')} gain 1 Favor.` : 'No House holds three Plots.'; break;
+      text += got.length ? `${got.map((h) => dn(h.name)).join(', ')} gain 1 Favor.` : 'No House holds three Plots.'; break;
     }
     case 'caravan_fire': {
       const victim = R.pick(state.rng, H);
       const low = Math.min(...H.filter((h) => h.i !== victim.i).map(wealth));
       const poor = R.pick(state.rng, H.filter((h) => h.i !== victim.i && wealth(h) === low));
       const got = takeRandom(state, victim.i, poor.i, 1);
-      text += got.length ? `${victim.name} loses 1 ${RES_NAME[got[0]]} to ${poor.name}.` : `${victim.name}'s Coffer is already bare.`; break;
+      text += got.length ? `${dn(victim.name)} loses 1 ${RES_NAME[got[0]]} to ${dn(poor.name)}.` : `${dn(victim.name)}'s Coffer is already bare.`; break;
     }
     case 'levy_of_the_crown': {
       const got = [];
@@ -714,28 +859,28 @@ function eventPhase(state) {
         if (totalLegions(state, h.i) >= 3) continue;
         const spot = heldPlots(state, h.i).filter((pid) => legionsOn(state, pid, h.i) < C.legionCapPerPlot)
           .sort((a, b) => legionsOn(state, a, h.i) - legionsOn(state, b, h.i) || a - b)[0];
-        if (spot) { addLegion(state, spot, h.i); got.push(h.name); fx(state, { t: 'muster', h: h.i, plot: spot }); }
+        if (spot) { addLegion(state, spot, h.i); got.push(dn(h.name)); fx(state, { t: 'muster', h: h.i, plot: spot }); }
       }
       text += got.length ? `${got.join(', ')} gain a Legion.` : 'No House qualifies.'; break;
     }
     case 'market_glut': {
       const hit = H.filter((h) => wealth(h) > 6); hit.forEach((h) => takeRandom(state, h.i, null, 2));
-      text += hit.length ? `${hit.map((h) => h.name).join(', ')} discard two resources.` : 'No Coffer is over six.'; break;
+      text += hit.length ? `${hit.map((h) => dn(h.name)).join(', ')} discard two resources.` : 'No Coffer is over six.'; break;
     }
     case 'council_of_houses': {
       const top = Math.max(...H.map((h) => h.favor)); const lead = H.filter((h) => h.favor === top);
-      if (lead.length === 1 && top > 0) { gainRenown(state, lead[0].i, C.councilRenown, 'Council'); text += `${lead[0].name} leads the Council and gains 2 Renown.`; }
+      if (lead.length === 1 && top > 0) { gainRenown(state, lead[0].i, C.councilRenown, 'Council'); text += `${dn(lead[0].name)} leads the Council and gains 2 Renown.`; }
       else text += 'No single House leads the Council.'; break;
     }
     case 'death_in_the_court': {
       const holders = H.filter((h) => h.dynasty);
-      if (holders.length) { const v = R.pick(state.rng, holders); text += `${v.name}'s Dynasty holder dies.`; after = () => succession(state, v.i); }
+      if (holders.length) { const v = R.pick(state.rng, holders); text += `${dn(v.name)}'s Dynasty holder dies.`; after = () => succession(state, v.i); }
       else text += 'No House holds a Dynasty.';
       break;
     }
     case 'lean_winter': {
       const hit = H.filter((h) => h.coffer.G < 3 && h.coffer.C > 0); hit.forEach((h) => h.coffer.C--);
-      text += hit.length ? `${hit.map((h) => h.name).join(', ')} lose 1 Coin.` : 'Every granary holds.'; break;
+      text += hit.length ? `${hit.map((h) => dn(h.name)).join(', ')} lose 1 Coin.` : 'Every granary holds.'; break;
     }
     case 'blood_moon': text += 'The moon rises red. Nothing happens.'; break;
   }
@@ -750,15 +895,18 @@ function succession(state, i) {
   if (!h.dynasty) return;
   const heir = h.heir;
   heir.revealed = true; heir.knownBy = state.houses.map((x) => x.i);
+  const dead = lordName(h); const heirN = heirName(state, h);
   if (heir.status === 'G') {
-    log(state, i, `${h.name}'s Genuine Heir takes the Dynasty.`, 'court');
+    log(state, i, `${dead} of ${dn(h.name)} dies. ${heirN}, a true-born Heir, takes the Dynasty.`, 'court');
+    h.lord = { ...newLord(state, h, heirN), since: state.season };
     if (HOUSES[h.name].successionBonus) gainRenown(state, i, C.thorneSuccessionBonus, 'Succession');
     h.heirsCrowned = (h.heirsCrowned || 0) + 1;
     newHeir(state, h);   // R23: the Heir now holds the Dynasty; the line needs a new, hidden Heir
     fx(state, { t: 'succession', h: i, result: 'G' });
   } else {
     h.dynasty = false; gainRenown(state, i, -C.impostorPenalty, 'Impostor');
-    log(state, i, `${h.name}'s Heir is an Impostor. The Dynasty is lost and 2 Renown with it.`, 'court');
+    log(state, i, `${dead} of ${dn(h.name)} dies, and ${heirN} is unmasked as an Impostor. The Dynasty falls, and 2 Renown with it; a regent takes the seat.`, 'court');
+    h.lord = newLord(state, h);
     h.heirsLost++; newHeir(state, h);
     fx(state, { t: 'succession', h: i, result: 'I' });
   }
@@ -806,7 +954,7 @@ function flood(state) {
     const lost = held[0] ?? null;
     if (lost != null) removeMarker(state, lost, v.i);
     result.catastrophe = { h: v.i, plot: lost, pressure: state.pressure };
-    log(state, v.i, `Ember Pressure breaks at ${state.pressure}. Catastrophe strikes ${v.name}${lost != null ? `, which loses a marker at ${plotById(lost).name}` : ''}.`, 'magic');
+    log(state, v.i, `Ember Pressure breaks at ${state.pressure}. Catastrophe strikes ${dn(v.name)}${lost != null ? `, which loses a marker at ${plotById(lost).name}` : ''}.`, 'magic');
     fx(state, { t: 'catastrophe', h: v.i, plot: lost });
     state.pressure = 0; state.houses.forEach((x) => { x.ritesSinceReset = 0; });
   }

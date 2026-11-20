@@ -18,8 +18,9 @@ const errors = []; const log = (...a) => console.log(`[${new Date().toISOString(
 page.on('console', (m) => { if (m.type() === 'error' || (m.type() === 'warning' && /watchdog/.test(m.text()))) { errors.push(m.text()); log('CONSOLE', m.type(), m.text().slice(0, 300)); } });
 page.on('pageerror', (e) => { errors.push(`pageerror: ${e.message}`); log('PAGEERROR', e.message, e.stack?.slice(0, 400)); });
 page.on('response', (r) => { if (r.status() >= 400) errors.push(`http ${r.status()} ${r.url()}`); });
-await page.goto('http://localhost:8080/?q=low&fps=2&scale=0.35');
+await page.goto(`http://localhost:8080/?q=low&fps=2&scale=0.35${process.env.RULES === 'original' ? '' : ''}`);
 await page.waitForFunction(() => window.READY === true, null, { timeout: 180000 });
+const tapSoft = async (sel) => { try { const el = page.locator(sel).first(); if (await el.count()) await (mobile ? el.tap({ force: true, timeout: 4000 }) : el.click({ force: true, timeout: 4000 })); } catch { /* the dialog closed itself */ } };
 const tap = async (sel) => { const el = page.locator(sel).first(); await el.waitFor({ timeout: 20000 }); if (mobile) await el.tap({ force: true }); else await el.click({ force: true }); };
 // settings: fast rivals
 await page.evaluate(() => { const a = window.hollowmere.app; a.settings.speed = 'instant'; a.saveSettings(); });
@@ -43,9 +44,9 @@ for (let guard = 0; guard < 4000; guard++) {
   }
   if (st.modal) {
     if (/Flood/.test(st.modalText) && Math.random() < 0.6) await page.screenshot({ path: `${dir}/${String(++shots).padStart(2, '0')}-flood${st.season}.png` });
-    if (/Open Court/.test(st.modalText)) { await tap('#modal .btn.primary'); continue; }
+    if (/Open Court/.test(st.modalText)) { await tapSoft('#modal .btn.primary'); continue; }
     const primary = await page.locator('#modal .btn.primary').count();
-    if (primary && !/^(Your|The Bank|Seal|Raid|Recapture|Build|Keep|Muster|Cabal)/.test(st.modalText) && !st.modalText.includes(':')) { await tap('#modal .btn.primary'); continue; }
+    if (primary && !/^(Your|The Bank|Seal|Raid|Recapture|Build|Keep|Muster|Cabal|Send an Envoy|Toil|Fortify)/.test(st.modalText) && !st.modalText.includes(':')) { await tapSoft('#modal .btn.primary'); continue; }
   }
   if (!st.human || st.busy || st.looping || st.pending || st.phase !== 'actions') continue;
   if (st.mode) { stuck++; if (stuck > 4) { errors.push(`stuck in mode ${st.mode} at Season ${st.season}`); await page.keyboard.press('Escape'); stuck = 0; } } else stuck = 0;
@@ -59,7 +60,7 @@ for (let guard = 0; guard < 4000; guard++) {
   });
   used[plan.type] = (used[plan.type] || 0) + 1; log(`S${st.season} you: ${JSON.stringify(plan)}`);
   humanActions++;
-  const label = { build: 'Build', keep: 'Keep', muster: 'Muster', raid: 'Raid', recapture: 'Recapture', trade: 'Trade', favor: 'Claim Favor', investigate: 'Investigate', play: 'Play Card', seal: 'Seal', reveal: 'Reveal Heir', rite: 'Rite', dynasty: 'Dynasty', cabal: 'Cabal', vigil: 'Vigil', pass: 'Pass' }[plan.type];
+  const label = { build: 'Build', keep: 'Keep', muster: 'Muster', raid: 'Raid', recapture: 'Recapture', trade: 'Trade', favor: 'Claim Favor', investigate: 'Investigate', play: 'Play Card', seal: 'Seal', reveal: 'Reveal Heir', rite: 'Rite', dynasty: 'Dynasty', cabal: 'Cabal', vigil: 'Vigil', toil: 'Toil', fortify: 'Fortify', envoy: 'Envoy', pass: 'Pass' }[plan.type];
   if (mobile) { const tabBtn = page.locator('#tabs button:has-text("Actions")'); if (await tabBtn.count()) await tabBtn.tap(); }
   await tap(`.act:has-text("${label}")`);
   await page.waitForTimeout(200);
@@ -87,7 +88,13 @@ for (let guard = 0; guard < 4000; guard++) {
     return false;
   };
   switch (plan.type) {
-    case 'build': case 'keep': case 'muster': case 'recapture': case 'cabal': await clickPlot(plan.plot); break;
+    case 'build': case 'keep': case 'muster': case 'recapture': case 'cabal': case 'fortify': await clickPlot(plan.plot); break;
+    case 'toil': { const n = { G: 'Grain', T: 'Timber', S: 'Stone', I: 'Iron', R: 'Reed', C: 'Coin', L: 'Lore' }[plan.res]; await pickChoice(`+1 ${n}`); break; }
+    case 'envoy': {
+      const nm = await page.evaluate((t) => import('/src/content/lore.js').then((L) => L.dn(window.hollowmere.app.state.houses[t].name)), plan.target);
+      await pickChoice(nm); await page.waitForTimeout(300);
+      await tap('#modal .btn.primary'); break;
+    }
     case 'raid': {
       await clickPlot(plan.to);
       if (await page.locator('#modal').count()) {

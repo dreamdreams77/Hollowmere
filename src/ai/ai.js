@@ -21,9 +21,25 @@ export const PERSONA = {
   Wren: { favor: 1.3, dynasty: 1.2, wide: 1.2, aggression: 0.6, threat: 1.2, style: 'Spreads wide behind its Accords and turns Favor into Dynasty.' },
   Sable: { prod: 1.3, reach: 1.1, aggression: 0.8, style: 'Builds hidden income with the Cabal and claims late Reaches.' },
   Caddoc: { rite: 2.2, res: 1.1, aggression: 0.7, style: 'Feeds its Rite hand and casts whenever the Pressure allows.' },
-  Raven: { inv: 1.8, heir: 1.2, aggression: 0.5, legion: 0.8, style: 'Draws Seals and exposes Impostors, avoiding open battle.' },
+  Raven: { inv: 1.6, heir: 1.2, aggression: 0.6, legion: 1.15, threat: 1.35, reach: 1.1, style: 'Draws Seals and exposes Impostors, avoiding open battle.' },
 };
-const W = (name) => ({ ...BASE, ...(PERSONA[name] || {}) });
+// A lord's trait bends the House's style (story made mechanical: two Emberlain lords play differently).
+export const TRAIT = {
+  bold: { aggression: 1.35, raid: 0.25, threat: 0.8 },
+  cautious: { threat: 1.4, legion: 1.15, aggression: 0.75 },
+  covetous: { res: 1.2, prod: 1.15 },
+  proud: { rival: 1.5, reach: 1.1 },
+  cunning: { inv: 1.3, heir: 1.15 },
+  pious: { rite: 1.35 },
+  honourable: { oath: 2.2 },
+  treacherous: { oath: 0.35, aggression: 1.1 },
+};
+function W(name, lord) {
+  const w = { ...BASE, rival: 1, oath: 1, ...(PERSONA[name] || {}) };
+  const t = lord && TRAIT[lord.trait];
+  if (t) for (const [k, v] of Object.entries(t)) w[k] = (k === 'raid' ? w[k] + v : w[k] * v);
+  return w;
+}
 
 const ROUND_SEASONS = (s) => C.floodSeasons.filter((f) => f >= s.season && !(f === s.season && (s.phase === 'flood' || s.phase === 'over')));
 function seasonsLeft(s) { return Math.max(0, C.seasons - s.season + (s.phase === 'harvest' ? 1 : 0.5)); }
@@ -43,7 +59,7 @@ const sig = (x) => 0.5 + 0.5 * Math.tanh(x);
 
 // Value of the state for House h --------------------------------------------------------------
 export function value(s, h) {
-  const me = s.houses[h]; const w = W(me.name); const H = HOUSES[me.name];
+  const me = s.houses[h]; const w = W(me.name, me.lord); const H = HOUSES[me.name];
   const left = seasonsLeft(s); const floods = ROUND_SEASONS(s);
   let v = me.renown * 1.0;
 
@@ -93,9 +109,15 @@ export function value(s, h) {
   for (const p of s.plots) {
     const mine = p.l[h] || 0; if (mine) leg += Math.min(mine, 3) * (0.55 + 0.1 * (p.m[h] || 0));
     if (!(p.m[h] > 0)) continue;
-    let enemy = 0;
-    for (const q of ADJ[p.id - 1]) for (const [k, n] of Object.entries(s.plots[q - 1].l)) if (+k !== h && !E.hasAccord(s, h, +k)) enemy = Math.max(enemy, Math.min(2, n));
-    if (enemy) threat += (mine ? (1 - skirmishWin(enemy, mine)) * 0.6 : 1.1) * (p.m[h] >= 2 ? 1.3 : 1);
+    let enemy = 0, trust = 1;
+    for (const q of ADJ[p.id - 1]) for (const [k, n] of Object.entries(s.plots[q - 1].l)) {
+      const o = +k; if (o === h || E.hasAccord(s, h, o)) continue;
+      const pact = E.pactWith(s, h, o) ? (s.houses[o].lord?.trait === 'treacherous' ? 0.6 : 0.25) : 1;
+      const grudge = 1 + Math.max(0, -(s.houses[o].regard?.[h] || 0)) * 0.08;   // those who hate us are likelier to come
+      if (Math.min(2, n) * pact * grudge > enemy * trust) { enemy = Math.min(2, n); trust = pact * grudge; }
+    }
+    const walls = s.rules === 'expanded' && p.walls === h ? 1 : 0;
+    if (enemy) threat += trust * (mine || walls ? (1 - skirmishWin(enemy, mine + walls)) * 0.6 : 1.1) * (p.m[h] >= 2 ? 1.3 : 1);
   }
   v += w.legion * leg * Math.min(1, left / 2);
   v -= w.threat * threat * (floods.length ? 0.9 : 0.2) * Math.min(1, left / 2);
@@ -128,7 +150,29 @@ export function value(s, h) {
     const most = Math.max(...s.houses.map((x) => x.ritesSeason));
     if (me.ritesSeason && me.ritesSeason === most) v -= 2.2;
   }
+  // 9. Standing: an AI plays to beat the field, not just to score. It weighs the strongest rival's
+  //    position against its own, so it will hurt a leader and help nobody run away.
+  let best = -1e9;
+  for (const o of s.houses) if (o.i !== h) best = Math.max(best, quickStanding(s, o.i, floods));
+  v -= w.rival * 0.2 * best;
+  // 10. Regard: goodwill makes Pacts possible; being an oathbreaker costs future trust.
+  if (s.rules === 'expanded') {
+    let good = 0; for (const o of s.houses) if (o.i !== h) good += Math.max(-3, Math.min(3, o.regard?.[h] || 0));
+    v += good * 0.12 * w.oath * Math.min(1, left / 4);
+    v -= me.oaths * 1.2 * w.oath;
+  }
   return v;
+}
+
+// A rival's likely final Renown: what it has, plus its present Reach leads carried to the Floods left.
+function quickStanding(s, i, floods) {
+  let est = s.houses[i].renown;
+  for (const reach of REACHES) {
+    const c = E.reachCounts(s, reach.id); const mine = c[i]; const top = Math.max(0, ...c.filter((_, k) => k !== i));
+    if (mine > top) for (const f of floods) est += (f === C.seasons ? C.finalFloodPoints[0] : C.midFloodPoints[0]) * (reach.delta ? 2 : 1) * 0.7;
+  }
+  if (s.houses[i].dynasty) est += floods.length;
+  return est;
 }
 
 function resWeight(me, r) {
@@ -149,11 +193,11 @@ function belief(state, h, salt) {
   const s = { ...state, log: [], fx: [] };
   const c = E.clone(s);
   c.rng = { s: R.hashSeed(`${state.seed}:${state.seq}:${h}:${salt}`) };
-  c.riteDeck = R.shuffle(c.rng, c.riteDeck);
+  c.riteDeck = R.shuffle(c.rng, c.riteDeck.slice().sort());   // sorted first: the true order must not leak through
   for (const x of c.houses) {
-    x.invDeck = R.shuffle(c.rng, x.invDeck);
-    x.heirPile = R.shuffle(c.rng, x.heirPile);
-    if (!x.heir.revealed && !x.heir.knownBy.includes(h)) x.heir.status = 'G';
+    x.invDeck = R.shuffle(c.rng, x.invDeck.slice().sort());
+    x.heirPile = R.shuffle(c.rng, x.heirPile.slice().sort());
+    if (!x.heir.revealed && !x.heir.knownBy.includes(h)) { x.heir.status = 'G'; x.heirPile = x.heirPile.map(() => 'I'); }   // neutral guess, pile consistent with it
     if (x.i === h) continue;
     if (!x.cabalExposed) for (const p of c.plots) if (p.cabal === x.i) p.cabal = null;
   }
@@ -175,8 +219,8 @@ const BONUS = {
 };
 
 // Score every legal Action; return them best first.
-export function rankActions(state, h = state.turn, { noise = 0.15 } = {}) {
-  const me = state.houses[h]; const w = W(me.name);
+export function rankActions(state, h = state.turn, { noise = 0.15, plan = true } = {}) {
+  const me = state.houses[h]; const w = W(me.name, me.lord);
   const acts = E.legalActions(state, h);
   const base = belief(state, h, 'base');
   const scored = [];
@@ -192,6 +236,8 @@ export function rankActions(state, h = state.turn, { noise = 0.15 } = {}) {
       const sw = applyOn(base, a, h, { skirmish: 'win' });
       const sl = def ? applyOn(base, a, h, { skirmish: 'lose' }) : null;
       score = p * sw + (sl == null ? 0 : (1 - p) * sl) + w.raid * (def ? 0.5 : 0.8) * w.aggression;
+      const regard = me.regard?.[a.target] || 0;
+      score += -regard * 0.12;                                            // grudges invite Raids, friends are spared
     } else if (a.type === 'seal' || (a.type === 'rite' && a.rite === 'ink_of_names')) {
       // Expected value without peeking at the hidden Heir.
       const after = applyOn(base, a, h, {});
@@ -209,6 +255,24 @@ export function rankActions(state, h = state.turn, { noise = 0.15 } = {}) {
     scored.push({ a, score });
   }
   scored.sort((x, y) => y.score - x.score);
+  // Plan ahead: if this House acts again this Season, look at what each of the best few Actions
+  // makes possible next (trade, then build; save Favor, then found a Dynasty). Rivals' turns in
+  // between are skipped, so the follow-up is discounted.
+  if (plan && state.round < C.actionsPerSeason - 1) {
+    const K = Math.min(6, scored.length);
+    for (let i = 0; i < K; i++) {
+      const x = scored[i]; if (x.a.type === 'raid' || x.a.type === 'pass' || x.a.type === 'seal' || x.a.type === 'envoy') continue;
+      const c = E.clone(base);
+      try { E.applyAction(c, x.a); } catch { continue; }
+      if (c.phase !== 'actions' || c.pending) continue;
+      c.turn = h; c.round = Math.min(c.round, C.actionsPerSeason - 1);
+      const next = rankActions(c, h, { noise: 0, plan: false });
+      if (!next.length) continue;
+      const follow = next[0].score;
+      if (follow > x.score) x.score = x.score + 0.85 * (follow - x.score);
+    }
+    scored.sort((x, y) => y.score - x.score);
+  }
   return scored;
 }
 

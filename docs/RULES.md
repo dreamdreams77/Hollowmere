@@ -63,9 +63,58 @@ the issues behind R23 and R26-R28, plus four information leaks (the AI could sim
 hidden Heir and deck order; the viewer state exposed private Seal results, draws and the Cabal).
 All are fixed and covered by regression tests.
 
+## House names
+
+Players see new names; the rules keep the source ids so the documents and tests stay traceable
+(`src/content/lore.js` holds each House's seat, words, history and the given names of its lords).
+
+| Source id | Shown as | Seat |
+|---|---|---|
+| Ash | Emberlain | Cinderholt |
+| Verrin | Aldermoor | Sheafhall |
+| Maelor | Tessaly | the Countinghouse |
+| Thorne | Rosenvael | Briarkeep |
+| Wren | Bramwell | the Hearthmoot |
+| Sable | Veylin | the Shuttered House |
+| Caddoc | Scrivane | Inkwell Abbey |
+| Raven | Ostrander | Watchfall |
+
+## Expanded rules (optional, chosen at setup; not in the source design)
+
+The source game leaves a House passing about 15 of its 36 Actions (measured with the AI). The
+Expanded rules add choices, politics and character. They are off in the engine by default
+(`newGame({ rules: 'original' })`); the app offers them on by default, with the original rules one
+switch away. Nothing in the original rules changes when they are off.
+
+| # | Addition | Rule |
+|---|---|---|
+| X1 | Toil | Free, once a Season: gain 1 resource of a kind your Plots produce. A House with two Plots or fewer may take any resource (Verrin still no Lore). |
+| X2 | Lords and traits | Every House is ruled by a named lord with one of eight traits (bold, cautious, covetous, proud, cunning, pious, honourable, treacherous). Traits change how the AI plays and how it answers Envoys. When a Dynasty holder dies, a Genuine Heir becomes the new lord; after an Impostor a regent takes the seat. Lords exist in both rule sets (story); only their effect on Pacts is Expanded. |
+| X3 | Fortify | 1 Stone, 1 Timber: wall a Plot you hold (one wall per Plot). Its defenders add 1 in a Skirmish, and a Raid on an empty walled Plot is still a Skirmish. Walls fall with the House's last marker there. |
+| X4 | Envoy and Pacts | 1 Coin, once a Season: offer a rival a Pact, optionally with a gift of one resource (two Coin needed to gift Coin). If accepted, neither may Raid the other or target the other with Heron Cry or Ashen Pyre until the end of next Season. AI Houses decide by a public, deterministic rule (regard, fear of the proposer's Legions, a runaway leader, past oathbreaking, the lord's trait). A human answers in a dialog. |
+| X5 | Oathbreaking and regard | Raiding a Pact partner or striking it with a Rite breaks the Pact: the oathbreaker loses 1 Renown and 2 Favor; the betrayed House's regard falls by 4 and everyone else's by 2. Regard (-5 to +5) also moves with Raids, captures, thefts, Seals, refusals, Accords and kept Pacts, and is shown to the player as Hostile, Wary, Neutral, Cordial or Friendly. Wren's Accords are unchanged and still cannot be broken. |
+| X6 | Rosenvael's courtiers | Thorne, the weakest House in every simulation (as the source design itself notes), sends Envoys for free and up to twice a Season. |
+
+Measured over 240 AI games each (`node tools/sim.mjs 240 4 5 <rules>`), passes fall from 14.8 to
+0.4 per House per game, Raids rise from 4.6 to about 10, and a game sees about ten Pacts and one
+broken oath in every three games.
+
 ## Known balance status
 
-`tools/sim.mjs` plays AI against AI. The design's own last measured results put every House inside
-20-30% under its scripted policies. The rebuilt AI is a different player: it is weighted per
-House, so its win rates measure the AI as much as the rules. Thorne remains the weakest House,
-matching the design's open item (6.8.5).
+`tools/sim.mjs` plays AI against AI (four players, 240 games). The rebuilt AI plans two Actions
+ahead within a Season, scores itself against the strongest rival, reads threats (walls, Pacts,
+grudges) and plays its lord's trait; it beats the first version of itself 62% to 38%.
+
+| House | Original rules | Expanded rules |
+|---|---|---|
+| Ash / Emberlain | 36% | 41% |
+| Verrin / Aldermoor | 22% | 29% |
+| Maelor / Tessaly | 31% | 23% |
+| Thorne / Rosenvael | 11% | 7% |
+| Wren / Bramwell | 24% | 28% |
+| Sable / Veylin | 20% | 19% |
+| Caddoc / Scrivane | 31% | 30% |
+| Raven / Ostrander | 27% | 25% |
+
+(Even share is 25%.) Thorne remains the weakest House, matching the design's open item (6.8.5);
+the setup screen marks it as Challenging. Ash's +1 Skirmish is worth more once Raids are common.

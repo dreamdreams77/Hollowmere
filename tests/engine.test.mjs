@@ -535,3 +535,71 @@ test('browser QA regression: view() keeps public Raid effects (whose "to" is a P
   act(s, { type: 'raid', from: 2, to: 3, target: 1, n: 1 });
   for (let i = 0; i < 4; i++) assert.ok(E.view(s, i).fx.some((e) => e.t === 'raid'));
 });
+
+// ---- Expanded rules (docs/RULES.md, X1-X6) and story
+function freshX(houses = ['Ash', 'Verrin', 'Maelor', 'Raven']) { const s = fresh(houses); s.rules = 'expanded'; return s; }
+
+test('expanded actions are absent from the original rules', () => {
+  const s = fresh(); give(s, 0, { S: 1, T: 1, C: 2 });
+  for (const t of E.EXPANDED_TYPES) assert.equal(E.optionsFor(s, 0, t).length, 0);
+  assert.ok(!E.actionCatalog(s, 0).some((c) => E.EXPANDED_TYPES.includes(c.type)));
+});
+
+test('every House has a named lord with a trait and display names in the chronicle', () => {
+  const s = E.newGame({ houses: ['Ash', 'Wren'], seed: 'lords' });
+  for (const h of s.houses) { assert.ok(h.lord.given && h.lord.epithet && h.lord.trait); }
+  assert.ok(s.log.some((l) => /Emberlain/.test(l.text) && /Bramwell/.test(l.text)));
+  assert.ok(!s.log.some((l) => /\bAsh\b|\bWren\b/.test(l.text)));
+});
+
+test('Toil: once a Season, one resource of a kind you hold', () => {
+  const s = freshX();
+  assert.equal(E.optionsFor(s, 0, 'toil').length, 7, 'two Plots or fewer: any resource');
+  s.plots[2].m[0] = 1;
+  const kinds = E.optionsFor(s, 0, 'toil').map((o) => o.res).sort();
+  assert.deepEqual(kinds, ['G', 'L', 'T']);
+  act(s, { type: 'toil', res: 'T' }); assert.equal(s.houses[0].coffer.T, 1);
+  s.turn = 0; assert.match(E.whyNot(s, 0, 'toil'), /already/);
+});
+
+test('Fortify: walls make an empty Plot fight and add one to its defence', () => {
+  const s = freshX();
+  s.plots[2].m[1] = 1; s.turn = 1; give(s, 1, { S: 1, T: 1 });
+  act(s, { type: 'fortify', plot: 3 }); assert.equal(s.plots[2].walls, 1);
+  s.turn = 0; give(s, 0, { I: 1 });
+  E.applyAction(s, { type: 'raid', from: 2, to: 3, target: 1, n: 1 }, { skirmish: 'lose' });
+  assert.equal(E.markersOn(s, 3, 1), 1, 'the walled Plot held');
+  assert.equal(s.fx.at(-1).walls, 1);
+});
+
+test('Envoy and Pacts: AI acceptance, regard, expiry; breaking one costs Renown, Favor and regard', () => {
+  const s = freshX(['Ash', 'Verrin', 'Maelor', 'Raven']);
+  s.houses[1].lord.trait = 'treacherous';
+  give(s, 0, { C: 1, I: 1 });
+  act(s, { type: 'envoy', target: 1, gift: null });
+  assert.ok(E.pactWith(s, 0, 1)); assert.equal(s.houses[1].regard[0], 2);
+  s.plots[2].m[1] = 1; s.turn = 0;
+  act(s, { type: 'raid', from: 2, to: 3, target: 1, n: 1 });
+  assert.equal(E.pactWith(s, 0, 1), null);
+  assert.equal(s.houses[0].renownBy.Oathbreaking, -1);
+  assert.ok(s.houses[1].regard[0] <= -3); assert.equal(s.houses[2].regard[0], -2);
+  assert.ok(E.pactScore(s, 2, 0, null) < E.pactScore(fresh(), 2, 0, null), 'oathbreakers are trusted less');
+});
+
+test('Envoy to a human waits for an answer', () => {
+  const s = E.newGame({ houses: ['Ash', 'Verrin'], humans: ['Verrin'], seed: 'env', seatOrder: ['Ash', 'Verrin'], rules: 'expanded' });
+  s.phase = 'actions'; s.turn = 0; s.round = 0; s.houses[0].coffer.C = 2; s.houses[0].flags = {};
+  E.applyAction(s, { type: 'envoy', target: 1, gift: 'C' });
+  assert.equal(s.pending.type, 'pact');
+  E.decide(s, { accept: true });
+  assert.ok(E.pactWith(s, 0, 1)); assert.equal(s.houses[1].coffer.C >= 1, true);
+});
+
+test('expanded full AI games finish for every House at 2, 3 and 4 players', () => {
+  for (const n of [2, 3, 4]) for (let k = 0; k < 8; k += 2) {
+    const houses = HOUSE_ORDER.slice(k).concat(HOUSE_ORDER.slice(0, k)).slice(0, n);
+    const s = E.newGame({ houses, seed: `x-${n}-${k}`, rules: 'expanded' });
+    playAI(s, { maxSteps: 6000 });
+    assert.equal(s.phase, 'over');
+  }
+});
