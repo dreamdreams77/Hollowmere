@@ -32,7 +32,11 @@ export class App {
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('resize', () => this.layoutChanged());
     this.mobileQ = window.matchMedia('(max-width: 820px), (max-height: 520px) and (max-width: 1000px)');
-    this.mobileQ.addEventListener?.('change', () => { this.buildHUD(); this.refresh(); });
+    this.mobileQ.addEventListener?.('change', () => {
+      if (!this.state || document.getElementById('title')) return;   // the title screen lays itself out
+      const modal = document.getElementById('modal'); if (modal) modal.remove();
+      this.buildHUD(); this.refresh(); if (modal) this.ui.append(modal);
+    });
     // Watchdog: if a rival should be acting and nothing is driving the game, start the loop again.
     setInterval(() => { const s = this.state; if (s && s.phase === 'actions' && !s.pending && !this.looping && !this.presenting && !s.houses[s.turn].human && !document.getElementById('modal')) { console.warn('watchdog restarted the game loop'); this.loop(); } }, 3000);
   }
@@ -43,6 +47,9 @@ export class App {
 
   // ------------------------------------------------------------------ title and setup
   showTitle() {
+    this.state = null; this.busy = false; this.mode = null; this.speechQ = [];   // stop any game in progress
+    if (this.modalResolve) { const r = this.modalResolve; this.modalResolve = null; r(); }
+    this.presenting = false;
     clear(this.ui);
     const saved = localStorage.getItem(SAVE_KEY);
     const pick = { house: 'Verrin', players: 4, rivals: 'random', rules: this.settings.rules || 'expanded' };
@@ -336,11 +343,13 @@ export class App {
     switch (a.type) {
       case 'raid': return `Raid ${P(a.to)} from ${P(a.from)} with ${a.n} Legion${a.n > 1 ? 's' : ''} against ${dn(S.houses[a.target].name)} (defended by ${E.legionsOn(S, a.to, a.target)}${S.plots[a.to - 1].walls === a.target && S.rules === 'expanded' ? ', walled' : ''})${E.pactWith(S, this.me, a.target) ? ' · BREAKS YOUR PACT' : ''}`;
       case 'recapture': return `Recapture ${P(a.plot)}`;
-      case 'rite': { const r = riteById[a.rite]; if (!a.targets.length) return r.target ? `${r.name} with no target` : r.name; return `${r.name}: ${a.targets.map((t) => (t.house != null ? `${dn(S.houses[t.house].name)} at ${P(t.plot)}` : P(t.plot))).join(' and ')}`; }
+      case 'rite': { const r = riteById[a.rite]; if (!a.targets.length) return r.target ? `${r.name} with no target` : r.name; const breaks = a.targets.some((t) => t.house != null && E.pactWith(S, this.me, t.house)); return `${r.name}: ${a.targets.map((t) => (t.house != null ? `${dn(S.houses[t.house].name)} at ${P(t.plot)}` : P(t.plot))).join(' and ')}${breaks ? ' · BREAKS YOUR PACT' : ''}`; }
       default: return `${E.ACTION_LABEL[a.type]}${a.plot ? ' at ' + P(a.plot) : ''}`;
     }
   }
   async act(action) {
+    const s = this.state;
+    if (!s || s.turn !== this.me || s.pending || this.busy || this.presenting || s.phase !== 'actions') { this.deny('Wait for your turn.'); return; }
     const chk = E.checkAction(this.state, action);
     if (!chk.ok) { this.deny(chk.reason); return; }
     this.closeModal(); this.mode = null; this.world.setSelection({ targets: [] });
@@ -359,8 +368,9 @@ export class App {
   // ------------------------------------------------------------------ game loop and presentation
   async loop() {
     if (this.looping) return; this.looping = true;
+    const game = this.state;
     try {
-      while (this.state && this.state.phase !== 'over') {
+      while (this.state && this.state === game && this.state.phase !== 'over') {
         const s = this.state;
         if (s.pending) {
           if (s.houses[s.pending.h].human) { this.refresh(); if (s.pending.type === 'pact') this.showPact(); else this.showAccords(); break; }
@@ -382,6 +392,8 @@ export class App {
     try { await this.presentInner(); } finally { this.presenting = false; }
   }
   async presentInner() {
+    if (!this.state) return;
+    const game = this.state;
     const v = this.view;
     const fresh = v.fx.filter((f) => f.n > this.lastFx);
     this.lastFx = Math.max(this.lastFx, ...this.state.fx.map((f) => f.n));
@@ -391,9 +403,11 @@ export class App {
     this.world.sync(v, k > 0.1);
     this.refresh();
     for (const f of fresh) {
+      if (this.state !== game) return;   // the game was abandoned mid-presentation
       if (f.t === 'raid') continue;
       await this.presentOne(f, v, k);
     }
+    if (this.state !== game) return;
     this.refresh();
   }
   async presentOne(f, v, k) {
@@ -531,7 +545,7 @@ export class App {
   // ------------------------------------------------------------------ modals
   modal(content, { dismiss = true, cls = '' } = {}) {
     this.closeModal();
-    const m = h('div', { id: 'modal', onclick: (e) => { if (dismiss && e.target === m) this.closeModal(); } }, h('div', { class: `sheet vellum gilt ${cls}` }, content));
+    const m = h('div', { id: 'modal', 'data-dismiss': dismiss ? '1' : '0', onclick: (e) => { if (dismiss && e.target === m) this.closeModal(); } }, h('div', { class: `sheet vellum gilt ${cls}` }, content));
     this.ui.append(m); return m;
   }
   closeModal() { document.getElementById('modal')?.remove(); if (this.modalResolve) { const r = this.modalResolve; this.modalResolve = null; r(); } }
@@ -663,7 +677,7 @@ export class App {
       h('img', { src: img.shield(this.state.houses[o.house].name), class: 'icon lg', alt: '' }), `${dn(this.state.houses[o.house].name)}: ${o.border} shared border${o.border === 1 ? '' : 's'}${sel.has(o.house) ? ' ✓' : ''}`)));
     render();
     this.modal([h('h2', {}, 'Open Court'), h('p', { class: 'lede' }, `Choose up to ${p.max} Accords for Season ${ROMAN[this.state.season]}. Partners cannot raid you, nor you them, and each Accord pays 1 Favor at a Flood.`), list,
-      h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: async () => { this.closeModal(); E.decide(this.state, { partners: [...sel] }); await this.present(); this.loop(); } }, 'Seal the Accords'))], { dismiss: false });
+      h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: async () => { this.closeModal(); E.decide(this.state, { partners: [...sel] }); try { await this.present(); } catch (err) { console.error(err); } this.loop(); } }, 'Seal the Accords'))], { dismiss: false });
   }
   waitModal(content, autoMs) {
     return new Promise((res) => {
@@ -771,8 +785,9 @@ export class App {
   onKey(e) {
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
     const W = this.world; const k = e.key;
-    if (k === 'Escape') { if (document.getElementById('modal')) this.closeModal(); else if (this.mode) this.cancelMode(); else this.closePlot(); return; }
-    if (document.getElementById('modal')) { if (k === 'Enter' || k === ' ') { const b = document.querySelector('#modal .btn.primary'); if (b) { e.preventDefault(); b.click(); } } return; }
+    const modal = document.getElementById('modal');
+    if (k === 'Escape') { if (modal) { if (modal.dataset.dismiss === '1') this.closeModal(); } else if (this.mode) this.cancelMode(); else this.closePlot(); return; }   // a choice that must be answered cannot be escaped
+    if (modal) { if ((k === 'Enter' || k === ' ') && !(document.activeElement && document.activeElement.tagName === 'BUTTON')) { const b = modal.querySelector('.btn.primary'); if (b) { e.preventDefault(); b.click(); } } return; }
     const step = 4;
     if (k === 'ArrowLeft' || k === 'a') W.pan(-step, 0); if (k === 'ArrowRight' || k === 'd') W.pan(step, 0);
     if (k === 'ArrowUp' || k === 'w') W.pan(0, -step); if (k === 'ArrowDown' || k === 's') W.pan(0, step);

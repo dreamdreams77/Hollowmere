@@ -22,7 +22,7 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
   // "Houses are dealt to the four seats A to D at random."
   const dealt = seatOrder ? seatOrder.slice() : R.shuffle(rng, houses);
   const state = {
-    v: 2, seed: String(seed), rng, rules,
+    v: 2, seed: String(seed), nameSeed: String(R.hashSeed(`${seed}:names`)), rng, rules,
     season: 1, phase: 'harvest', round: 0, turn: 0,
     houses: [], plots: PLOTS.map((p) => ({ id: p.id, m: {}, l: {}, contests: [], cabal: null })),
     pressure: 0, riteDeck: R.shuffle(rng, RITES.map((r) => r.id)), riteDiscard: [],
@@ -37,7 +37,7 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
       i, name, seat: seats[i], human: humans.includes(name),
       coffer: Object.fromEntries(RES.map((r) => [r, H.coffer[r] || 0])),
       favor: 0, renown: 0, renownBy: {},
-      heir: { status: pile.pop(), serial: 1, revealed: false, knownBy: [] }, heirPile: pile, heirsLost: 0,
+      heir: { status: pile.pop(), serial: 1, pub: 1, revealed: false, knownBy: [] }, heirPile: pile, heirsLost: 0,
       dynasty: false, dynastiesBought: 0,
       rites: [], invHand: [], invDeck: deck, invDiscard: [],
       cabalTokens: 0, cabalExposed: false,
@@ -116,7 +116,9 @@ function formPact(state, a, b, gift) {
 // Bring a saved state from an older version up to date.
 export function migrate(state) {
   if (!state.rules) state.rules = 'original';
+  if (!state.nameSeed) state.nameSeed = String(R.hashSeed(`${state.seed}:names`));
   for (const h of state.houses) {
+    if (!h.heir.pub) h.heir.pub = h.heir.serial;
     if (!h.lord) h.lord = newLord(state, h);
     if (!h.regard) { h.regard = {}; for (const o of state.houses) if (o.i !== h.i) h.regard[o.i] = 0; }
     if (!h.pacts) h.pacts = []; if (h.oaths == null) h.oaths = 0;
@@ -192,7 +194,7 @@ function drawInvestigation(state, house) {
 function newHeir(state, house) {
   // Draw the next Heir card from the House's own pile. A pile emptied of Impostors leaves the Genuine.
   const status = house.heirPile.length ? house.heirPile.pop() : 'G';
-  house.heir = { status, serial: house.heir.serial + 1, revealed: false, knownBy: [] };
+  house.heir = { status, serial: house.heir.serial + 1, pub: (house.heir.pub || house.heir.serial) + 1, revealed: false, knownBy: [] };
 }
 
 // Cost helpers that depend on the House.
@@ -319,8 +321,8 @@ export function whyNot(state, h, type) {
       return 'Every Plot you hold is already walled.';
     case 'envoy':
       if (!expanded(state)) return 'Only in the Expanded rules.';
-      if (house.coffer.C < 1) return 'Needs 1 Coin.';
       if ((house.flags.envoy || 0) >= (H.vigil ? 2 : 1)) return 'You have already sent your Envoys this Season.';
+      if (!H.vigil && house.coffer.C < 1) return 'Needs 1 Coin.';
       return 'You already have a Pact with every rival.';
     case 'pass': return null;
     default: return 'Unknown action.';
@@ -425,7 +427,7 @@ export function optionsFor(state, h, type) {
       for (const x of state.houses) {
         if (x.i === h || pactWith(state, h, x.i)) continue;
         out.push({ type, target: x.i, gift: null });
-        for (const r of RES) if (house.coffer[r] >= (r === 'C' ? 2 : 1)) out.push({ type, target: x.i, gift: r });
+        for (const r of RES) if (house.coffer[r] >= (r === 'C' && !envoyFree ? 2 : 1)) out.push({ type, target: x.i, gift: r });
       }
       break;
     case 'pass': out.push({ type }); break;
@@ -591,10 +593,10 @@ export function applyAction(state, action, opts = {}) {
     case 'vigil': {
       house.coffer.C -= 1; house.flags.vigil = true;
       house.heir.knownBy.push(h);
-      let text = `${me} keeps a Vigil over its Heir.`;
+      const text = `${me} keeps a Vigil over its Heir.`;   // the result is private (R5): rivals learn nothing
       if (house.heir.status === 'I' && !house.married) {
-        house.married = true; house.heirsLost++; newHeir(state, house);
-        text += ' A marriage brings a second claimant into the line.';
+        const pub = house.heir.pub;
+        house.married = true; house.heirsLost++; newHeir(state, house); house.heir.pub = pub;
         fx(state, { t: 'vigil', h, result: 'remarried', only: [h] });
       } else fx(state, { t: 'vigil', h, result: 'known', only: [h] });
       log(state, h, text, 'court');
@@ -1006,6 +1008,7 @@ function endGame(state) {
 export function view(state, viewer) {
   const s = clone(state);
   delete s.rng; s.riteDeck = s.riteDeck.length; s.riteDiscard = s.riteDiscard.length;
+  delete s.seed;   // the seed regenerates every hidden pile and deck
   s.fx = s.fx.filter((e) => !e.only || e.only.includes(viewer));
   for (const h of s.houses) {
     const knows = h.heir.revealed || h.heir.knownBy.includes(viewer);
@@ -1013,6 +1016,7 @@ export function view(state, viewer) {
     if (!h.heir.revealed) h.heir.knownBy = h.heir.knownBy.includes(viewer) ? h.heir.knownBy.filter((k) => k === viewer || k === h.i) : [];
     h.heirPile = h.heirPile.length; h.invDeck = h.invDeck.length;
     if (h.i === viewer) continue;
+    h.heir.serial = h.heir.pub || h.heir.serial; delete h.married; delete h.heirsLost;   // a Vigil's marriage stays private
     h.rites = h.rites.length; h.invHand = h.invHand.length; h.invDiscard = h.invDiscard.length;
     if (!h.cabalExposed) { h.cabalTokens = '?'; for (const p of s.plots) if (p.cabal === h.i) p.cabal = null; }
   }

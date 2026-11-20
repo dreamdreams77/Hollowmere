@@ -72,7 +72,7 @@ export const dn = (key) => LORE[key]?.display || key;
 // state and stay the same on reload.
 function h32(s) { let x = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return x >>> 0; }
 export function heirName(state, house) {
-  const L = LORE[house.name]; const k = h32(`${state.seed}:${house.name}:${house.heir.serial}`);
+  const L = LORE[house.name]; const k = h32(`${state.nameSeed || state.seed}:${house.name}:${house.heir.pub || house.heir.serial}`);   // public facts only
   const given = L.given[k % L.given.length];
   return given === house.lord?.given ? L.given[(k + 3) % L.given.length] : given;
 }

@@ -13,7 +13,7 @@ const pick = (arr, ...keys) => arr[h32(keys.join(':')) % arr.length];
 const fill = (t, v) => t.replace(/\{(\w+)\}/g, (m, k) => (v[k] != null ? String(v[k]) : m));
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const listOf = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
-const seedOf = (state) => (state && state.seed != null ? state.seed : '');
+const seedOf = (state) => (state && (state.nameSeed ?? state.seed) != null ? (state.nameSeed ?? state.seed) : '');   // nameSeed is public; the true seed is not
 const reachName = (id) => REACHES[id - 1]?.name || `Reach ${id}`;
 
 export const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'];

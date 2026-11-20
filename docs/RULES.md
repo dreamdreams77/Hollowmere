@@ -61,7 +61,7 @@ are exactly those in `HOW_TO_PLAY.md` and the reference sheet, with the decision
 An independent review (a separate agent reading only the sources and the code) found and confirmed
 the issues behind R23 and R26-R28, plus four information leaks (the AI could simulate its own
 hidden Heir and deck order; the viewer state exposed private Seal results, draws and the Cabal).
-All are fixed and covered by regression tests.
+All are fixed and covered by regression tests. A second review (fuzzing 6,000 random games, 659,000 steps, plus browser checks) found that the viewer state exposed the game seed (from which hidden piles can be rebuilt) and that a Vigil's marriage was announced publicly; the seed is now withheld, Heir names come from a public name seed, and a Vigil reveals nothing to rivals. It also found interface faults (Esc on a must-answer dialog, rotating a tablet, abandoning a game, stale clicks), all fixed and checked in the browser.
 
 ## House names
 

@@ -43,3 +43,12 @@ fit Hollowmere and were combined:
 
 Ultramarine `#22379a`, lapis `#16235f`, vermilion `#c8321f`, verdigris `#3f8f7a`, ink `#2a1a10`,
 vellum `#efe2c4`, gold leaf (texture, mid `#c99a3e`). House colours are in `src/rules/data.js`.
+
+## Phones
+
+Mid-range Android phones get the Low tier by default. Low keeps the look rather than stripping
+it: soft-edged (PCF) shadows at 2048, FXAA anti-aliasing, the colour grade, swaying trees and most
+of the scenery; only the depth-of-field blur, bloom and ambient occlusion are off. The camera
+frames the board inside the part of the screen the panels leave free and looks down more steeply
+on tall screens. When frames run slow the game first drops the blur, and only then lowers the
+resolution, never below 75%.
