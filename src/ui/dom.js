@@ -26,4 +26,5 @@ export const img = {
   art: (kind, key, obj) => cached(`art:${kind}:${key}`, () => cardArt(kind, obj)),
 };
 export const icon = (src, cls = 'icon', alt = '') => h('img', { src, class: cls, alt, draggable: 'false' });
+export function put(el, ...kids) { for (const k of kids.flat(Infinity)) if (k != null && k !== false) el.append(k.nodeType ? k : document.createTextNode(String(k))); return el; }
 export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }

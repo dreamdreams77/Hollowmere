@@ -304,9 +304,11 @@ export function flameGlyph(s = 64, lit = true) {
 }
 
 // Card art: a small illuminated miniature per Rite school / Investigation type / Event.
+// id: { id } for Events and Rites (Rites also carry { school }), { type } for Investigation cards.
 export function cardArt(kind, id, w = 300, h = 180) {
-  const key = `art:${kind}:${id}:${w}`; if (cache.has(key)) return cache.get(key);
-  const c = canvas(w, h); const g = c.getContext('2d'); const rnd = seeded([...id].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7));
+  const sid = typeof id === 'string' ? id : (id.id || id.type || 'x');
+  const key = `art:${kind}:${sid}:${w}`; if (cache.has(key)) return cache.get(key);
+  const c = canvas(w, h); const g = c.getContext('2d'); const rnd = seeded([...sid].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7));
   const SCHOOL = { Tidewater: ['#2d5f8a', '#7fb3c9'], Lorecraft: ['#3b2f6b', '#8f86c8'], Ironveil: ['#3a3f48', '#9aa3ad'], Verdant: ['#2f5a2a', '#8fbf6a'], Gilt: ['#6b4a12', '#e2bc5a'], Ashen: ['#5a1e12', '#e8873a'] };
   let pal = ['#22379a', '#4f7fc4'];
   if (kind === 'rite') pal = SCHOOL[id.school] || pal;

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Hollowmere art gallery (QA)</title>
+<link rel="stylesheet" href="../styles/main.css">
+<style>body{overflow:auto;background:#1c140e;color:#efe2c4;padding:16px;font-family:'IM Fell English',serif}h2{color:#f1d184;margin:18px 0 8px}.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}.row canvas{border:1px solid #000}.lbl{font-size:13px;text-align:center}</style>
+</head><body>
+<h1 style="color:#f1d184">Hollowmere: every painted asset</h1>
+<div id="out"></div>
+<script type="module">
+import * as A from '../src/content/art.js';
+import { HOUSE_ORDER, RITES, EVENTS, INVESTIGATION, RES } from '../src/rules/data.js';
+await document.fonts.load('48px "IM Fell English"');
+const out = document.getElementById('out');
+const sec = (t) => { const h = document.createElement('h2'); h.textContent = t; out.append(h); const r = document.createElement('div'); r.className = 'row'; out.append(r); return r; };
+const add = (row, c, label) => { const d = document.createElement('div'); d.append(c); const l = document.createElement('div'); l.className = 'lbl'; l.textContent = label; d.append(l); row.append(d); };
+let r = sec('Shields'); for (const h of HOUSE_ORDER) add(r, A.shield(h, 128), h);
+r = sec('Banners'); for (const h of HOUSE_ORDER) add(r, A.banner(h, 64, 128), h);
+r = sec('Heirs'); for (const h of ['Ash', 'Thorne', 'Raven']) for (const s of ['?', 'G', 'I']) add(r, A.heirPortrait(h, s), `${h} ${s}`);
+r = sec('Resources, Favor, Renown, Pressure'); for (const k of RES) add(r, A.resourceGlyph(k, 64), k); add(r, A.seal(64), 'Favor'); add(r, A.laurel(64), 'Renown'); add(r, A.flameGlyph(48, true), 'lit'); add(r, A.flameGlyph(48, false), 'unlit');
+r = sec('Rites'); for (const x of RITES) add(r, A.cardArt('rite', { school: x.school, id: x.id }), x.name);
+r = sec('Investigation'); for (const k of Object.keys(INVESTIGATION)) add(r, A.cardArt('inv', { type: k, id: k }), k);
+r = sec('Events'); for (const e of EVENTS) add(r, A.cardArt('event', { id: e.id }), e.name);
+r = sec('Materials'); add(r, A.goldLeaf(128, 4), 'gold leaf'); add(r, A.vellum(160, 160, 3), 'vellum'); add(r, A.lapisGround(160, 160, 11), 'lapis');
+window.READY = true;
+</script></body></html>

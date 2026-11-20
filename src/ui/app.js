@@ -3,7 +3,7 @@
 import * as E from '../rules/engine.js';
 import { CONFIG, HOUSES, HOUSE_ORDER, PLOTS, REACHES, RES, RES_NAME, RITES, riteById, EVENTS, eventById, INVESTIGATION, pips, plotById } from '../rules/data.js';
 import { chooseAction, suggestAccords, PERSONA } from '../ai/ai.js';
-import { h, img, icon, clear } from './dom.js';
+import { h, img, icon, clear, put } from './dom.js';
 import { seasonLook } from '../render/world.js';
 
 const SAVE_KEY = 'hollowmere.save.v1', SETTINGS_KEY = 'hollowmere.settings.v1';
@@ -39,7 +39,7 @@ export class App {
     const grid = h('div', { class: 'house-grid' });
     const renderDetail = () => {
       const H = HOUSES[pick.house];
-      clear(detail).append(h('div', {}, h('b', {}, `House ${pick.house}, the ${H.title}. `), h('span', { class: 'it' }, `"${H.motto}"`)),
+      put(clear(detail), h('div', {}, h('b', {}, `House ${pick.house}, the ${H.title}. `), h('span', { class: 'it' }, `"${H.motto}"`)),
         h('div', { class: 'small' }, H.blurb), h('div', { class: 'small muted' }, `Wins by: ${H.winsBy}. Weak at: ${H.weakAt}.`));
     };
     for (const name of HOUSE_ORDER) {
@@ -131,10 +131,10 @@ export class App {
     const pressure = h('div', { class: 'pressure', title: `Ember Pressure ${v.pressure} of ${CONFIG.pressureThreshold}. At 4 or more at a Flood, the heaviest caster loses a marker.` });
     for (let i = 0; i < CONFIG.pressureThreshold; i++) pressure.append(icon(img.flame(v.pressure >= i + 1), 'icon'));
     if (v.pressure % 1) pressure.append(h('span', { class: 'small' }, '½'));
-    top.append(seasons,
+    top.append(...[seasons,
       h('div', { class: 'phase' }, h('b', {}, `Season ${ROMAN[v.season]} · ${look.name}`), h('span', {}, phaseTxt + (nextFlood && v.phase !== 'over' ? ` · Flood ${nextFlood === v.season ? 'this Season' : 'in Season ' + ROMAN[nextFlood]}` : ''))),
       pressure,
-      cur ? h('img', { class: 'turn-shield', src: img.shield(cur.name), alt: cur.name, title: `${cur.name} to act` }) : null);
+      cur ? h('img', { class: 'turn-shield', src: img.shield(cur.name), alt: cur.name, title: `${cur.name} to act` }) : null].filter(Boolean));
   }
   heirText(x, v) {
     if (x.heir.revealed) return x.heir.status === 'G' ? 'Genuine, revealed' : 'Impostor, exposed';
@@ -144,7 +144,7 @@ export class App {
   }
   renderMine(v, el) {
     const me = v.houses[this.me]; const H = HOUSES[me.name];
-    clear(el).append(
+    put(clear(el), 
       h('div', { class: 'house-head' }, h('img', { src: img.shield(me.name), alt: '' }), h('div', {}, h('h2', {}, me.name), h('div', { class: 'tt' }, `the ${H.title} · seat ${me.seat}`))),
       h('div', { class: 'scores' },
         h('span', { title: 'Renown: the score. The most at the end of Season XII wins.' }, icon(img.renown(), 'icon lg'), String(me.renown)),
@@ -285,7 +285,7 @@ export class App {
     if (!pid || !e) { tip.classList.add('hidden'); return; }
     const p = plotById(pid); const plot = this.state?.plots[pid - 1];
     const holders = plot ? Object.entries(plot.m).filter(([, n]) => n).map(([k, n]) => `${this.state.houses[k].name} ${n === 2 ? '(Keep)' : ''}`.trim()) : [];
-    clear(tip).append(h('b', {}, p.name), h('div', { class: 'small it' }, `${RES_NAME[p.res]} on ${p.n} (${pips(p.n)} in 36) · Reach ${REACHES[p.reach - 1].roman}`), holders.length ? h('div', { class: 'small' }, holders.join(', ')) : null);
+    put(clear(tip), h('b', {}, p.name), h('div', { class: 'small it' }, `${RES_NAME[p.res]} on ${p.n} (${pips(p.n)} in 36) · Reach ${REACHES[p.reach - 1].roman}`), holders.length ? h('div', { class: 'small' }, holders.join(', ')) : null);
     tip.classList.remove('hidden');
     tip.style.left = `${Math.min(window.innerWidth - 290, e.clientX + 16)}px`; tip.style.top = `${e.clientY + 14}px`;
   }
@@ -433,7 +433,7 @@ export class App {
       if (raids.length) here.push({ type: 'raidMenu', raids });
     }
     const reach = REACHES[p.reach - 1];
-    clear(el).append(
+    put(clear(el), 
       h('button', { class: 'close', 'aria-label': 'Close', onclick: () => this.closePlot() }, '×'),
       h('h3', {}, p.name),
       h('div', { class: 'meta' }, icon(img.res(p.res)), ` ${RES_NAME[p.res]} on a ${p.n} · pays on ${pips(p.n)} rolls in 36 · Reach ${reach.roman}, ${reach.name}${reach.delta ? ' (scores double)' : ''}`),
@@ -475,7 +475,7 @@ export class App {
     const body = h('div');
     const render = () => {
       const gives = [...new Set(options.map((o) => o.give))];
-      clear(body).append(h('div', { class: 'trade' },
+      put(clear(body), h('div', { class: 'trade' },
         h('div', { class: 'col' }, h('div', { class: 'it' }, `Give ${rate}`), gives.map((r) => h('button', { class: `btn${r === give ? ' on' : ''}`, onclick: () => { give = r; if (get === give) get = RES.find((x) => x !== give); render(); } }, icon(img.res(r)), RES_NAME[r], h('span', { class: 'muted' }, `(${me.coffer[r]})`)))),
         h('div', { class: 'col' }, h('div', { class: 'it' }, 'Receive 1'), RES.filter((r) => r !== give).map((r) => h('button', { class: `btn${r === get ? ' on' : ''}`, onclick: () => { get = r; render(); } }, icon(img.res(r)), RES_NAME[r], h('span', { class: 'muted' }, `(${me.coffer[r]})`))))),
       h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: () => this.act({ type: 'trade', give, get }) }, `Trade ${rate} ${RES_NAME[give]} for 1 ${RES_NAME[get]}`), h('button', { class: 'btn', onclick: () => this.closeModal() }, 'Cancel')));
@@ -552,7 +552,7 @@ export class App {
   showAccords() {
     const p = this.state.pending; const sug = new Set(suggestAccords(this.state, p.h)); const sel = new Set(sug);
     const list = h('div', { class: 'pick-list' });
-    const render = () => clear(list).append(p.options.map((o) => h('button', { class: `btn${sel.has(o.house) ? ' pending act' : ''}`, onclick: () => { if (sel.has(o.house)) sel.delete(o.house); else if (sel.size < p.max) sel.add(o.house); render(); } },
+    const render = () => put(clear(list), p.options.map((o) => h('button', { class: `btn${sel.has(o.house) ? ' pending act' : ''}`, onclick: () => { if (sel.has(o.house)) sel.delete(o.house); else if (sel.size < p.max) sel.add(o.house); render(); } },
       h('img', { src: img.shield(this.state.houses[o.house].name), class: 'icon lg', alt: '' }), `${this.state.houses[o.house].name}: ${o.border} shared border${o.border === 1 ? '' : 's'}${sel.has(o.house) ? ' ✓' : ''}`)));
     render();
     this.modal([h('h2', {}, 'Open Court'), h('p', { class: 'lede' }, `Choose up to ${p.max} Accords for Season ${ROMAN[this.state.season]}. Partners cannot raid you, nor you them, and each Accord pays 1 Favor at a Flood.`), list,
