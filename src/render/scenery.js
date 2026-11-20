@@ -196,7 +196,7 @@ function tokenTexture(n) {
   g.beginPath(); g.arc(128, 128, 120, 0, 7); g.lineWidth = 14; g.strokeStyle = PIGMENT.ink; g.stroke();
   g.beginPath(); g.arc(128, 128, 104, 0, 7); g.lineWidth = 3; g.strokeStyle = 'rgba(42,26,16,.5)'; g.stroke();
   g.fillStyle = hot ? PIGMENT.vermilion : PIGMENT.ink;
-  g.font = '170px "IM Fell English", Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = 'bold 150px Georgia, "Times New Roman", serif'; g.textAlign = 'center'; g.textBaseline = 'middle';   // IM Fell's 1 reads as a Roman I: 11 would look like II
   g.lineWidth = 6; g.strokeStyle = g.fillStyle; g.strokeText(String(n), 128, 112); g.fillText(String(n), 128, 112);
   const k = pips(n);
   for (let i = 0; i < k; i++) { g.beginPath(); g.arc(128 + (i - (k - 1) / 2) * 26, 206, 10, 0, 7); g.fill(); }

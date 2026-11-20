@@ -1,7 +1,58 @@
 // Procedural sound for Hollowmere, made with Web Audio (no recorded files):
-// a soft ambient bed (wind, water, birds by Season), a slow modal score on plucked strings and a
-// drone, and sound effects for each kind of moment. Starts on the first user gesture.
-const DORIAN = [0, 2, 3, 5, 7, 9, 10];
+// a soft ambient bed (wind, water, birds by Season), a small book of modal airs (Mixolydian,
+// Dorian, Aeolian) chosen by Season and crossfaded, and sound effects for each kind of moment.
+// Starts on the first user gesture.
+const MODES = { dorian: [0, 2, 3, 5, 7, 9, 10], aeolian: [0, 2, 3, 5, 7, 8, 10], mixolydian: [0, 2, 4, 5, 7, 9, 10] };
+
+// The score. Melodies are [scale degree, length in beats] (0 = tonic; 7 = octave), bar by bar;
+// chords give the harp's open-fifth arpeggio for each bar; drum is a velocity per beat of the bar.
+const AIRS = [
+  { name: 'The Sedge Wren', mode: 'mixolydian', root: 392, beat: 0.24, bar: 6, form: 'AABA', lead: { A: 'flute', B: 'flute' }, arp: [0, 2, 4],
+    drum: [0.9, 0, 0.3, 0.6, 0, 0.3],
+    A: [[4, 2], [4, 1], [5, 2], [4, 1], [2, 2], [0, 1], [1, 2], [2, 1], [4, 2], [4, 1], [5, 2], [6, 1], [7, 3], [6, 2], [5, 1],
+      [4, 2], [4, 1], [5, 2], [4, 1], [2, 2], [0, 1], [1, 2], [2, 1], [3, 2], [1, 1], [-1, 2], [1, 1], [0, 6]],
+    cA: [0, 0, 0, -1, 0, 0, -1, 0],
+    B: [[7, 2], [7, 1], [6, 2], [7, 1], [8, 3], [7, 2], [6, 1], [5, 2], [4, 1], [5, 2], [6, 1], [7, 3], [4, 3],
+      [7, 2], [7, 1], [6, 2], [7, 1], [8, 2], [9, 1], [8, 2], [7, 1], [6, 2], [4, 1], [5, 2], [3, 1], [4, 6]],
+    cB: [0, 3, -1, 0, 0, 3, -1, 4] },
+  { name: 'Long Light', mode: 'dorian', root: 293.66, beat: 0.3, bar: 6, form: 'ABAB', lead: { A: 'flute', B: 'harp' }, arp: [0, 2, 4],
+    drum: [0.8, 0, 0.25, 0, 0.4, 0],
+    A: [[0, 2], [2, 2], [4, 2], [5, 4], [4, 2], [3, 2], [2, 2], [0, 2], [1, 6], [0, 2], [2, 2], [4, 2], [7, 3], [5, 1], [4, 2], [3, 2], [1, 2], [-1, 2], [0, 6]],
+    cA: [0, 3, -1, 4, 0, 3, -1, 0],
+    B: [[4, 2], [5, 2], [7, 2], [8, 4], [7, 2], [5, 2], [4, 2], [3, 2], [4, 6], [7, 2], [5, 2], [4, 2], [3, 3], [2, 1], [3, 2], [1, 2], [2, 2], [-1, 2], [0, 6]],
+    cB: [4, 0, 3, 4, -1, 3, -1, 0] },
+  { name: 'The Drownbell', mode: 'aeolian', root: 220, beat: 0.32, bar: 6, form: 'AABA', lead: { A: 'harp', B: 'flute' }, arp: [0, 2, 4],
+    drum: [0.7, 0, 0, 0, 0.3, 0],
+    A: [[0, 2], [0, 1], [2, 1], [4, 2], [3, 2], [2, 2], [0, 2], [-1, 2], [0, 2], [2, 2], [1, 4], [-1, 2], [0, 2], [0, 1], [2, 1], [4, 2], [5, 3], [4, 1], [3, 2], [2, 2], [1, 2], [-1, 2], [0, 6]],
+    cA: [0, -2, -1, -1, 0, -2, -1, 0],
+    B: [[7, 2], [6, 2], [4, 2], [5, 4], [4, 2], [6, 2], [4, 2], [2, 2], [4, 6], [7, 2], [9, 2], [7, 2], [6, 2], [5, 2], [4, 2], [2, 2], [3, 2], [1, 2], [0, 6]],
+    cB: [0, -2, -1, 4, 0, -2, -1, 0] },
+  { name: 'Ember Vigil', mode: 'dorian', root: 329.63, beat: 0.36, bar: 8, form: 'ABA', lead: { A: 'flute', B: 'flute' }, arp: [0, 2, 4, 6], drone: 0.06,
+    drum: [0.35, 0, 0, 0, 0.15, 0, 0, 0],
+    A: [[0, 4], [2, 2], [3, 2], [4, 6], [3, 2], [2, 4], [0, 2], [1, 2], [-1, 8], [0, 4], [2, 2], [4, 2], [5, 4], [4, 2], [2, 2], [3, 4], [1, 2], [-1, 2], [0, 8]],
+    cA: [0, 3, -1, -1, 0, 3, -1, 0],
+    B: [[4, 4], [5, 2], [7, 2], [6, 6], [4, 2], [5, 4], [3, 2], [2, 2], [4, 8], [7, 4], [6, 2], [4, 2], [3, 4], [2, 2], [0, 2], [1, 4], [-1, 4], [0, 8]],
+    cB: [4, -1, 3, 4, 0, 3, -1, 0] },
+  { name: 'Tollbridge Fair', mode: 'dorian', root: 440, beat: 0.2, bar: 6, form: 'AABB', lead: { A: 'harp', B: 'flute' }, arp: [0, 2, 4],
+    drum: [0.9, 0, 0.35, 0.6, 0.2, 0.35],
+    A: [[0, 1], [2, 1], [4, 1], [4, 2], [2, 1], [3, 1], [4, 1], [5, 1], [4, 2], [2, 1], [0, 1], [2, 1], [4, 1], [7, 2], [5, 1], [4, 3], [2, 3],
+      [0, 1], [2, 1], [4, 1], [4, 2], [2, 1], [3, 1], [4, 1], [5, 1], [6, 2], [4, 1], [3, 2], [1, 1], [-1, 2], [1, 1], [0, 6]],
+    cA: [0, 0, 0, 4, 0, -1, -1, 0],
+    B: [[7, 2], [5, 1], [7, 2], [8, 1], [9, 2], [8, 1], [7, 3], [6, 2], [4, 1], [6, 2], [7, 1], [8, 3], [6, 3],
+      [7, 2], [5, 1], [7, 2], [8, 1], [9, 1], [8, 1], [7, 1], [6, 2], [4, 1], [3, 2], [4, 1], [1, 2], [-1, 1], [0, 6]],
+    cB: [0, 0, -1, -1, 0, 0, -1, 0] },
+];
+// Expand each air's form into a playable score: notes by beat, chords by bar, total length.
+export const PIECES = AIRS.map((a) => {
+  const notes = new Map(), chords = []; let pos = 0;
+  for (const sec of a.form) {
+    for (const [deg, len] of a[sec]) { notes.set(pos, [deg, len, sec]); pos += len; }
+    chords.push(...a['c' + sec]);
+  }
+  return { ...a, notes, chords, len: pos };
+});
+// Spring: The Sedge Wren / Tollbridge Fair; Summer: Long Light / Tollbridge Fair; Autumn: The Drownbell; Winter: Ember Vigil.
+const SEASON_PIECES = [[0, 4], [1, 4], [2], [3]];
 
 export class Audio {
   constructor() { this.ctx = null; this.on = true; this.musicOn = true; this.vol = 0.8; this.season = 1; }
@@ -24,7 +75,6 @@ export class Audio {
   }
   setOn(v) { this.on = v; if (this.master) this.master.gain.setTargetAtTime(v ? this.vol : 0, this.ctx.currentTime, 0.1); }
   setMusic(v) { this.musicOn = v; if (this.musicBus) this.musicBus.gain.setTargetAtTime(v ? 0.32 : 0, this.ctx.currentTime, 0.3); }
-  setSeason(s) { this.season = s; }
 
   noiseSrc(loop = true) { const s = this.ctx.createBufferSource(); s.buffer = this.noise; s.loop = loop; return s; }
   ambient() {
@@ -64,29 +114,93 @@ export class Audio {
     src.start(t, Math.random()); src.stop(t + 0.05);
     setTimeout(() => { try { out.disconnect(); fb.disconnect(); } catch { /* gone */ } }, (t - c.currentTime + 3) * 1000);
   }
+  // ---- music: a small book of modal airs, one or two per Season, played by a lookahead
+  // scheduler (flute or harp lead, harp arpeggios on open fifths, a drone and a frame drum).
   music() {
-    const c = this.ctx;
-    // drone: two detuned saws through a low-pass
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; const dg = c.createGain(); dg.gain.value = 0.05;
-    for (const f of [73.42, 110]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = Math.random() * 8 - 4; o.connect(lp); o.start(); }
-    lp.connect(dg).connect(this.musicBus);
-    let step = 0; const root = 146.83; // D
-    const phrase = () => {
-      if (!this.ctx) return;
-      const t = c.currentTime + 0.05; const sn = (this.season - 1) % 4;
-      const tempo = sn === 3 ? 0.62 : 0.48;
-      const shape = [0, 2, 4, 3, 1, 2, 0, -1][step % 8];
-      for (let i = 0; i < 4; i++) {
-        if (Math.random() < 0.18) continue;
-        const deg = shape + [0, 2, 1, 4][i] + (step % 16 > 7 ? 2 : 0);
-        const oct = Math.floor(deg / 7), sem = DORIAN[((deg % 7) + 7) % 7] + oct * 12;
-        this.pluck(root * Math.pow(2, sem / 12), t + i * tempo, 0.35 + Math.random() * 0.2, this.musicBus, sn === 3 ? 1800 : 2800);
+    this.step = 0; this.pieceIdx = -1; this.cur = null; this.cycle = 0;
+    this.choosePiece(true);
+    this.sched = setInterval(() => this.schedule(), 140);
+  }
+  seasonPieces() { return SEASON_PIECES[(this.season - 1) % 4]; }
+  choosePiece(first = false) {
+    const list = this.seasonPieces();
+    const next = first || !list.includes(this.pieceIdx) ? list[0] : list[(list.indexOf(this.pieceIdx) + 1) % list.length];
+    if (this.cur && next === this.pieceIdx) { this.cur.pos = -this.cur.rest; this.cycle++; return; }
+    this.startPiece(next);
+  }
+  // Crossfade: the old piece's bus fades out (its notes ring on under the fade), the new one fades in.
+  startPiece(i) {
+    const c = this.ctx; const t = c.currentTime; const P = PIECES[i];
+    if (this.cur) { const old = this.cur; old.bus.gain.setTargetAtTime(0, t, 1.2); for (const o of old.osc) o.stop(t + 7); setTimeout(() => { try { old.bus.disconnect(); } catch { /* gone */ } }, 8000); }
+    const bus = c.createGain(); bus.gain.setValueAtTime(0, t); bus.gain.setTargetAtTime(1, t + 0.4, 1.4); bus.connect(this.musicBus);
+    // drone: tonic and fifth in the low register, through a slowly breathing low-pass
+    let f = P.root; while (f > 140) f /= 2;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 360; lp.Q.value = 0.6;
+    const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.06; lg.gain.value = 140; lfo.connect(lg).connect(lp.frequency);
+    const dg = c.createGain(); dg.gain.value = P.drone ?? 0.05; lp.connect(dg).connect(bus);
+    const osc = [lfo];
+    for (const [fr, type, det] of [[f, 'sawtooth', -3], [f * 1.5, 'triangle', 4], [f * 2, 'sine', 0]]) { const o = c.createOscillator(); o.type = type; o.frequency.value = fr; o.detune.value = det; o.connect(lp); o.start(t); osc.push(o); }
+    lfo.start(t);
+    this.pieceIdx = i; this.cycle = 0;
+    this.cur = { P, bus, osc, pos: -P.bar, rest: P.bar * 2, next: t + 0.6 };
+  }
+  setSeason(s) {
+    this.season = s;
+    if (this.ctx && this.cur && !this.seasonPieces().includes(this.pieceIdx)) this.startPiece(this.seasonPieces()[0]);
+  }
+  freq(P, deg, oct = 0) { const m = MODES[P.mode]; const o = Math.floor(deg / 7); return P.root * Math.pow(2, (m[((deg % 7) + 7) % 7] + (o + oct) * 12) / 12); }
+  schedule() {
+    const c = this.ctx; if (!c || !this.cur) return;
+    const S = this.cur, P = S.P; const ahead = c.currentTime + 0.5;
+    if (S.next < c.currentTime - 1) S.next = c.currentTime + 0.05;          // the tab slept: skip ahead
+    while (S.next < ahead) {
+      const t = S.next, pos = S.pos; S.next += P.beat; S.pos++;
+      if (pos >= P.len) { this.choosePiece(); if (this.cur !== S) { this.cur.next = t + P.beat * 2; return; } continue; }
+      if (pos < 0 || !this.musicOn) continue;
+      const inBar = pos % P.bar, bar = Math.floor(pos / P.bar);
+      const sway = 1 + (Math.random() - 0.5) * 0.12;
+      // frame drum
+      const dv = P.drum[inBar]; if (dv) this.drum(t + (Math.random() - 0.5) * 0.012, dv * sway, S.bus);
+      // harp: open-fifth arpeggio on the bar's chord
+      const ch = P.chords[bar]; const ai = P.arp.indexOf(inBar);
+      if (ch != null && ai >= 0) this.harp(this.freq(P, ch + [0, 4, 7, 4][ai], -1), t, 0.12 * sway, S.bus, 1.2);
+      // lead
+      const ev = P.notes.get(pos);
+      if (ev) {
+        const [deg, len, sec] = ev; const fr = this.freq(P, deg);
+        const lead = P.lead[sec] || 'flute'; const dur = len * P.beat;
+        if (len >= 2 && Math.random() < 0.18) { const g = this.freq(P, deg + 1); if (lead === 'flute') this.flute(g, t - 0.07, 0.07, 0.06, S.bus); else this.harp(g, t - 0.05, 0.05, S.bus, 0.3); }
+        if (lead === 'flute') this.flute(fr, t, dur * 0.96, 0.1 * sway, S.bus); else this.harp(fr, t, 0.17 * sway, S.bus, Math.max(1.2, dur * 1.2));
       }
-      if (step % 4 === 0) this.pluck(root / 2 * Math.pow(2, DORIAN[(shape + 7) % 7] / 12), t, 0.5, this.musicBus, 900);
-      step++;
-      setTimeout(phrase, tempo * 4 * 1000);
-    };
-    phrase();
+    }
+  }
+  // Instruments (oscillator-based so pitch is exact at any register; a handful of nodes per note).
+  flute(f, t, dur, vel, bus) {
+    const c = this.ctx; const g = c.createGain(), lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
+    const o = c.createOscillator(), o2 = c.createOscillator(), g2 = c.createGain(); o.type = 'triangle'; o2.type = 'sine';
+    o.frequency.value = f; o2.frequency.value = f * 2; g2.gain.value = 0.12;
+    const vib = c.createOscillator(), vg = c.createGain(); vib.frequency.value = 5.2; vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(f * 0.006, t + Math.min(0.5, dur));
+    vib.connect(vg); vg.connect(o.frequency); vg.connect(o2.frequency);
+    o.connect(lp); o2.connect(g2).connect(lp); lp.connect(g); g.connect(bus); g.connect(this.verb);
+    const end = t + Math.max(0.12, dur);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vel, t + 0.05); g.gain.setValueAtTime(vel * 0.85, end - 0.04); g.gain.exponentialRampToValueAtTime(0.0005, end + 0.25);
+    for (const x of [o, o2, vib]) { x.start(t); x.stop(end + 0.3); }
+  }
+  harp(f, t, vel, bus, dur = 1.6) {
+    const c = this.ctx; const g = c.createGain(), lp = c.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(Math.min(6000, f * 9), t); lp.frequency.exponentialRampToValueAtTime(Math.max(400, f * 2), t + 0.35);
+    const o = c.createOscillator(), o2 = c.createOscillator(), g2 = c.createGain(); o.type = 'triangle'; o2.type = 'sine'; o.frequency.value = f; o2.frequency.value = f * 3.01; g2.gain.value = 0.18;
+    o.connect(lp); o2.connect(g2).connect(lp); lp.connect(g); g.connect(bus); g.connect(this.verb);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vel, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+    o.start(t); o2.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+  }
+  // A frame drum (bodhran-like): a pitched skin thump and, on accents, a soft slap.
+  drum(t, vel, bus) {
+    const c = this.ctx; const o = c.createOscillator(), g = c.createGain(); o.type = 'sine';
+    o.frequency.setValueAtTime(105, t); o.frequency.exponentialRampToValueAtTime(58, t + 0.16);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.32 * vel, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.4);
+    o.connect(g).connect(bus); o.start(t); o.stop(t + 0.45);
+    if (vel > 0.5) { const s = this.noiseSrc(false), bp = c.createBiquadFilter(), sg = c.createGain(); bp.type = 'bandpass'; bp.frequency.value = 850; bp.Q.value = 1.2; s.connect(bp).connect(sg).connect(bus); sg.gain.setValueAtTime(0.06 * vel, t); sg.gain.exponentialRampToValueAtTime(0.0005, t + 0.07); s.start(t, Math.random()); s.stop(t + 0.1); }
   }
   // ---- effects
   env(node, t, a, peak, dec) { node.gain.setValueAtTime(0, t); node.gain.linearRampToValueAtTime(peak, t + a); node.gain.exponentialRampToValueAtTime(0.0008, t + a + dec); }

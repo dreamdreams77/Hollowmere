@@ -7,6 +7,8 @@ import { buildWater } from './water.js';
 import { buildScenery } from './scenery.js';
 import { Pieces } from './pieces.js';
 import { FX } from './fx.js';
+import { Life } from './life.js';
+import { glowMat } from './kit.js';
 import { makePost } from './post.js';
 import { S, BOARD, WATER_Y, plotAt, plotCentre } from './layout.js';
 import { goldLeaf } from '../content/art.js';
@@ -29,6 +31,9 @@ export class World {
     this.camGoal = { target: this.cam.target.clone(), yaw: 0, pitch: 0.98, dist: 104 };
     this.clock = new THREE.Clock(); this.time = 0; this.frameMs = 16; this.renderScale = 1;
     this.look = SEASON_LOOK[0]; this.lookNow = { ...SEASON_LOOK[0] };
+    // day cycle inside each Season: dusk 0 (midday) .. 1 (evening), ~90 s period
+    this.dayOn = true; this.dayT = 0; this.dusk = 0; this.dayPeriod = 90;
+    this.sunBase = new THREE.Color('#fff1d6'); this.hemS = new THREE.Color('#cfe0f2'); this.hemG = new THREE.Color('#6d7d4a'); this._c = new THREE.Color();
   }
   async init() {
     const q = this.quality;
@@ -59,11 +64,12 @@ export class World {
     // world
     const terr = buildTerrain(q); this.terrain = terr.mesh; scene.add(terr.mesh);
     scene.add(buildSlab({ walnut, walnutN, walnutR, leaf }));
-    const water = buildWater(heightTexture(q === 'low' ? 160 : 256)); this.water = water; scene.add(water.mesh);
+    const water = buildWater(heightTexture(q === 'low' ? 160 : 256), q); this.water = water; scene.add(water.mesh);
     const scen = this.scenery = buildScenery(q); scene.add(scen.group);
     this.fx = new FX(scene, q);
     for (const s of scen.smokes) this.fx.addSmoke(s, { rate: 2.4, col: [0.45, 0.43, 0.42], size: 0.6 });
     this.pieces = new Pieces(scene, this.houses);
+    this.life = new Life(scene, q);
     // picking proxies: one invisible tile per Plot
     this.pickers = [];
     const pg = new THREE.BoxGeometry(S * 0.98, 6, S * 0.98);
@@ -84,6 +90,11 @@ export class World {
     window.addEventListener('resize', () => this.resize());
     this.setSeason(1, true);
     this.running = true;
+    // Optional QA hooks (render-only): ?dayt=0..1 pins the time of day (0 midday, 1 evening);
+    // ?flooddemo=N plays a Flood after N seconds (default 4).
+    const qs = new URLSearchParams(location.search);
+    if (qs.has('dayt')) { this.dayPinned = THREE.MathUtils.clamp(+qs.get('dayt') || 0, 0, 1); }
+    if (qs.has('flooddemo')) setTimeout(() => this.play({ t: 'flood' }), (+qs.get('flooddemo') || 4) * 1000);
     // ?fps=N caps the frame rate (used by automated tests on machines without a GPU)
     const cap = +(new URLSearchParams(location.search).get('fps') || 0);
     let last = 0;
@@ -116,6 +127,8 @@ export class World {
     this.fx.setWeather(this.look.weather);
   }
   setWeather(kind) { this.fx.setWeather(kind); }
+  // The gentle day cycle inside each Season (on by default). Off eases back to midday light.
+  setDayCycle(on) { this.dayOn = !!on; }
 
   sync(view, animate = true) {
     this.pieces.sync(view, animate);
@@ -245,10 +258,18 @@ export class World {
     for (const key of ['sunI', 'az', 'el', 'hemI', 'snow', 'autumn', 'spring', 'cloud', 'wind', 'expo', 'warm', 'sat']) L[key] += (G[key] - L[key]) * k;
     L.sun = G.sun; L.hemS = G.hemS; L.hemG = G.hemG;
     WORLD_UNIFORMS.uSnow.value = L.snow; WORLD_UNIFORMS.uAutumn.value = L.autumn; WORLD_UNIFORMS.uSpring.value = L.spring; WORLD_UNIFORMS.uCloud.value = L.cloud; WORLD_UNIFORMS.uWind.value = L.wind;
-    this.sun.color.lerp(new THREE.Color(L.sun), k); this.sun.intensity = L.sunI;
-    this.sun.position.set(Math.sin(L.az) * 90 * Math.cos(L.el), Math.sin(L.el) * 110, Math.cos(L.az) * 70 * Math.cos(L.el) + 20);
-    this.hemi.color.lerp(new THREE.Color(L.hemS), k); this.hemi.groundColor.lerp(new THREE.Color(L.hemG), k); this.hemi.intensity = L.hemI;
-    const gr = this.post.grade.uniforms; gr.warm.value = L.warm; gr.sat.value = L.sat; gr.expo.value = L.expo; gr.contrast.value = 0.32; gr.amt.value = 0.5;
+    // day cycle: the sun lowers and warms toward evening, then comes back; never dark
+    if (this.dayOn) this.dayT += dt;
+    const duskGoal = this.dayPinned != null ? this.dayPinned : this.dayOn ? 0.5 - 0.5 * Math.cos(this.dayT / this.dayPeriod * Math.PI * 2) : 0;
+    this.dusk += (duskGoal - this.dusk) * Math.min(1, dt * 2); const D = this.dusk;
+    const winter = L.snow > 0.3 ? 1 : 0;
+    this.sunBase.lerp(this._c.set(L.sun), k); this.hemS.lerp(this._c.set(L.hemS), k); this.hemG.lerp(this._c.set(L.hemG), k);
+    this.sun.color.copy(this.sunBase).lerp(this._c.set(winter ? '#ffc6a2' : '#ff9c5a'), D * 0.42); this.sun.intensity = L.sunI * (1 - 0.2 * D);
+    const el = L.el - D * 0.2 * L.el, az = L.az + D * 0.38;
+    this.sun.position.set(Math.sin(az) * 90 * Math.cos(el), Math.sin(el) * 110, Math.cos(az) * 70 * Math.cos(el) + 20);
+    this.hemi.color.copy(this.hemS).lerp(this._c.set(winter ? '#c9cfe8' : '#e9c9b2'), D * 0.35); this.hemi.groundColor.copy(this.hemG); this.hemi.intensity = L.hemI * (1 - 0.14 * D);
+    const gr = this.post.grade.uniforms; gr.warm.value = L.warm + D * (winter ? 0.06 : 0.15); gr.sat.value = L.sat; gr.expo.value = L.expo * (1 - 0.04 * D); gr.contrast.value = 0.32; gr.amt.value = 0.5;
+    glowMat.emissiveIntensity = 1.6 + 2.4 * D;
     // camera
     const c = this.cam, gl = this.camGoal, e = 1 - Math.pow(0.002, dt);
     c.target.lerp(gl.target, e); c.yaw += (gl.yaw - c.yaw) * e; c.pitch += (gl.pitch - c.pitch) * e; c.dist += (gl.dist - c.dist) * e;
@@ -261,14 +282,18 @@ export class World {
     d.band.w = 0.2 + Math.min(0.22, c.dist / 420);
     // animated scenery
     for (const o of this.scenery.animated) o.rotation.z = t * o.userData.spin * L.wind;
-    for (const b of this.scenery.boats) { const u = b.userData.bob; b.position.x = u.x + Math.sin(t * 0.08 + u.ph) * 3; b.position.y = WATER_Y + this.water.uniforms.uFlood.value + Math.sin(t * 1.6 + u.ph) * 0.05; b.rotation.z = Math.sin(t * 1.3 + u.ph) * 0.05; }
+    for (const b of this.scenery.boats) { const u = b.userData.bob; b.position.x = u.x + Math.sin(t * 0.08 + u.ph) * 3; b.position.y = WATER_Y + this.water.uniforms.uFlood.value * 1.45 + Math.sin(t * 1.6 + u.ph) * 0.05; b.rotation.z = Math.sin(t * 1.3 + u.ph) * 0.05; }
     this.pieces.update(dt, t);
-    this.fx.update(dt, t, this.camera);
     if (this.floodAnim) {
+      // swell fast, spill over the banks, hold, then recede slowly
       const f = this.floodAnim; f.t += dt; const kk = Math.min(1, f.t / f.dur);
-      this.water.uniforms.uFlood.value = Math.sin(kk * Math.PI) * f.h;
+      const up = THREE.MathUtils.smoothstep(kk, 0, 0.3), down = 1 - THREE.MathUtils.smoothstep(kk, 0.55, 1);
+      this.water.uniforms.uFlood.value = up * down * f.h;
+      WORLD_UNIFORMS.uWet.value = Math.max(WORLD_UNIFORMS.uWet.value, up * down);
       if (kk >= 1) { this.floodAnim = null; this.water.uniforms.uFlood.value = 0; }
-    }
+    } else WORLD_UNIFORMS.uWet.value = Math.max(0, WORLD_UNIFORMS.uWet.value - dt * 0.15);
+    this.life.update(dt, t, { dusk: this.dusk, pieces: this.pieces, fx: this.fx, flood: this.water.uniforms.uFlood.value });
+    this.fx.update(dt, t, this.camera);
     const t0 = performance.now();
     this.post.composer.render(dt);
     this.adapt(performance.now() - t0, dt);
@@ -319,7 +344,11 @@ export class World {
       case 'catastrophe': if (e.plot) { const p = P(e.plot, 0.6); this.fx.burst(p, [1, 0.45, 0.15], 140, 4, 1.8, 0.4); this.fx.flash(p, '#ff6a2a', 70, 1.6); this.fx.addSmoke(p, { rate: 10, col: [0.3, 0.27, 0.25], life: 5, size: 1.2, until: this.time + 6 }); } return wait(1.8);
       case 'renown': { const h = e.h; const hold = view.plots.find((p) => (p.m[h] || 0) > 0); const pos = hold ? site(hold.id, h) : new THREE.Vector3(0, 2, 0); this.fx.renown(pos, e.n); return wait(0.1); }
       case 'favor': { const hold = view.plots.find((p) => (p.m[e.h] || 0) > 0); if (hold) this.fx.favor(site(hold.id, e.h), e.n); return wait(0.4); }
-      case 'flood': this.floodAnim = { t: 0, dur: 4.5, h: 0.55 }; this.setWeather('rain'); setTimeout(() => this.setWeather(this.look.weather), 4500); return wait(0.2);
+      case 'flood': {
+        this.floodAnim = { t: 0, dur: 4.6, h: 0.56 }; this.setWeather('rain');
+        clearTimeout(this.rainT); this.rainT = setTimeout(() => this.setWeather(this.look.weather), 2600);
+        return wait(0.2);
+      }
       case 'seal': case 'reveal': case 'succession': case 'dynasty': case 'vigil': { const hold = view.plots.find((p) => (p.m[e.h] || 0) > 0); if (hold) this.fx.ring(site(hold.id, e.h), '#f1d184', 2.4, 1.2); return wait(0.6); }
       case 'cabal': if (e.plot) this.fx.burst(P(e.plot, 0.6), [0.7, 0.6, 1], 30, 1, 1.4, 0.3); return wait(0.5);
       case 'disband': return wait(0.1);
