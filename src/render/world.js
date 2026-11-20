@@ -16,7 +16,7 @@ const SEASON_LOOK = [
   { name: 'Spring', sun: '#fff1d6', sunI: 3.0, az: 0.7, el: 0.85, hemS: '#cfe0f2', hemG: '#6d7d4a', hemI: 0.8, snow: 0, autumn: 0, spring: 1, cloud: 0.55, wind: 1.0, weather: 'clear', expo: 0.95, warm: 0.15, sat: 1.08 },
   { name: 'Summer', sun: '#ffe7b8', sunI: 3.3, az: 0.4, el: 1.0, hemS: '#d6e6f6', hemG: '#7a7444', hemI: 0.78, snow: 0, autumn: 0, spring: 0, cloud: 0.35, wind: 0.7, weather: 'clear', expo: 0.95, warm: 0.3, sat: 1.1 },
   { name: 'Autumn', sun: '#ffc98a', sunI: 2.9, az: 1.1, el: 0.62, hemS: '#e2d6c4', hemG: '#7a5a3a', hemI: 0.75, snow: 0, autumn: 1, spring: 0, cloud: 0.7, wind: 1.4, weather: 'leaves', expo: 0.94, warm: 0.55, sat: 1.3 },
-  { name: 'Winter', sun: '#e6eeff', sunI: 2.6, az: 0.9, el: 0.5, hemS: '#cfdcf2', hemG: '#8a8a9a', hemI: 0.95, snow: 1, autumn: 0, spring: 0, cloud: 0.8, wind: 1.2, weather: 'snow', expo: 1.05, warm: -0.1, sat: 0.98 },
+  { name: 'Winter', sun: '#e6eeff', sunI: 2.6, az: 0.9, el: 0.5, hemS: '#cfdcf2', hemG: '#8a8a9a', hemI: 0.95, snow: 0.62, autumn: 0, spring: 0, cloud: 0.8, wind: 1.2, weather: 'snow', expo: 1.05, warm: -0.1, sat: 0.98 },
 ];
 export const seasonLook = (s) => SEASON_LOOK[(s - 1) % 4];
 

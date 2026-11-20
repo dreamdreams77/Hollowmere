@@ -167,7 +167,7 @@ export class App {
         h('li', {}, h('span', {}, 'Markers · Legions'), h('span', {}, `${E.totalMarkers(this.state, this.me)} · ${E.totalLegions(this.state, this.me)}`)),
         h('li', {}, h('span', {}, 'Dynasty'), h('span', {}, me.dynasty ? 'Held (+1 each Flood)' : `None (costs ${E.dynastyFavor(me)} Favor, 2 Reed)`)),
         H.cabal ? h('li', {}, h('span', {}, 'Cabal tokens'), h('span', {}, `${me.cabalTokens} of 2${me.cabalExposed ? ' · exposed' : ' · hidden'}`)) : null,
-        me.pacts.length ? h('li', {}, h('span', {}, 'Pacts'), h('span', {}, me.pacts.map((p) => `${dn(v.houses[p.with].name)} (to S${ROMAN[p.until]})`).join(', '))) : null,
+        me.pacts.length ? h('li', {}, h('span', {}, 'Pacts'), h('span', {}, me.pacts.map((p) => `${dn(v.houses[p.with].name)} (to Season ${ROMAN[Math.min(12, p.until)]})`).join(', '))) : null,
         me.oaths ? h('li', {}, h('span', { class: 'ver' }, 'Oaths broken'), h('span', { class: 'ver' }, String(me.oaths))) : null,
         me.accords.length ? h('li', {}, h('span', {}, 'Accords'), h('span', {}, me.accords.map((a) => dn(v.houses[a].name)).join(', '))) : null,
         h('li', {}, h('span', {}, 'Wins by'), h('span', { class: 'it' }, H.winsBy))),

@@ -190,7 +190,7 @@ export function paintPatch(mat, { sway = 0, snowCap = 1 } = {}) {
           c = mix(c, autumn, uAutumn * green);
           c = mix(c, c * vec3(.92, 1.1, .9), uSpring * green);
           float up = smoothstep(.45, .9, vWN.y);
-          float sn = uSnow * ${snowCap.toFixed(2)} * up * smoothstep(.25, .6, hmFbm(vWP.xz * .7) + uSnow * .5);
+          float sn = uSnow * ${snowCap.toFixed(2)} * up * smoothstep(.35, .75, hmFbm(vWP.xz * .7) + uSnow * .35 + max(vWP.y, 0.) * .06);
           c = mix(c, vec3(.92, .94, .98), sn);
           c *= .9 + .2 * hmNoise(vWP.xz * 2.7);
           c *= 1. - uWet * .18;
