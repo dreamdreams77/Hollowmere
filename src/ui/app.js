@@ -5,7 +5,8 @@ import { CONFIG, HOUSES, HOUSE_ORDER, PLOTS, REACHES, RES, RES_NAME, RITES, rite
 import { chooseAction, suggestAccords, PERSONA } from '../ai/ai.js';
 import { h, img, icon, clear, put } from './dom.js';
 import { seasonLook } from '../render/world.js';
-import { LORE, TRAITS, dn, heirName, lordName } from '../content/lore.js';
+import { LORE, TRAITS, dn, heirName, lordName, greeting } from '../content/lore.js';
+import { seasonOpening, eventFlavour, floodFlavour, reachVerdict, quotesForFx, plotLore, rumour, epilogue } from '../content/chronicle.js';
 
 const SAVE_KEY = 'hollowmere.save.v1', SETTINGS_KEY = 'hollowmere.settings.v1';
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
@@ -95,7 +96,7 @@ export class App {
     this.world.resetView();
     this.world.sync(this.view, false);
     this.lastFx = Math.max(0, ...this.state.fx.map((f) => f.n)) - 0;
-    this.banner(`Season ${ROMAN[state.season]}`, `${seasonLook(state.season).name} · the dice show ${state.dice[0]} and ${state.dice[1]}`);
+    this.banner(`Season ${ROMAN[state.season]}`, seasonOpening(state));
     this.refresh();
     this.save(true);
     this.loop();
@@ -122,7 +123,7 @@ export class App {
       ui.append(this.el.sheet);
     } else ui.append(this.el.mine, this.el.rivals, this.el.chron, this.el.actions);
   }
-  layoutChanged() { if (this.state && this.selected) this.showPlot(this.selected); }
+  layoutChanged() { if (this.state && this.selected) this.showPlot(this.selected); requestAnimationFrame(() => this.updateSafeArea()); }
 
   refresh() {
     if (!this.state) return;
@@ -131,6 +132,21 @@ export class App {
     if (this.mobile) this.renderSheet(v);
     else { this.renderMine(v, this.el.mine); this.renderRivals(v, this.el.rivals); this.renderChron(v, this.el.chron); this.renderActions(v, this.el.actions); }
     if (this.selected) this.showPlot(this.selected, false);
+    this.updateSafeArea();
+  }
+  // Tell the world which part of the screen is free of panels so the board is framed there.
+  updateSafeArea() {
+    const W = window.innerWidth, H = window.innerHeight;
+    const r = (el) => (el && el.isConnected && getComputedStyle(el).display !== 'none' ? el.getBoundingClientRect() : null);
+    const top = r(this.el?.top), sheet = r(this.el?.sheet), acts = this.mobile ? null : r(this.el?.actions), mine = this.mobile ? null : r(this.el?.mine), riv = this.mobile ? null : r(this.el?.rivals);
+    let x0 = 0, x1 = W, y0 = top ? top.bottom + 4 : 0, y1 = H;
+    if (sheet) { if (sheet.width < W * 0.7) x1 = sheet.left; else y1 = sheet.top; }
+    if (acts) y1 = Math.min(y1, acts.top - 4);
+    if (mine && mine.width) x0 = mine.right + 4;
+    if (riv && riv.width && riv.height) x1 = Math.min(x1, riv.left - 4);
+    const s = { x: x0, y: y0, w: Math.max(120, x1 - x0), h: Math.max(120, y1 - y0) };
+    const key = [s.x, s.y, s.w, s.h].map(Math.round).join(',');
+    if (key !== this.safeKey) { this.safeKey = key; this.world.setSafeArea(s); }
   }
   renderTop(v) {
     const top = clear(this.el.top);
@@ -173,6 +189,7 @@ export class App {
         h('li', {}, h('span', {}, 'Wins by'), h('span', { class: 'it' }, H.winsBy))),
       h('div', { class: 'heir' }, h('img', { src: img.heir(me.name, me.heir.status), alt: 'Your Heir' }),
         h('div', {}, h('div', {}, h('b', {}, `Your Heir, ${heirName(this.state, this.state.houses[this.me])}: `), this.heirText(me, v)), h('div', { class: 'it muted' }, me.heir.status === '?' ? 'Four in five are Impostors. A Vigil, a Seal or a succession will show the truth.' : me.heir.status === 'G' && !me.heir.revealed ? 'Reveal it (2 Favor) to score 4 at the end.' : me.heir.status === 'I' ? 'Should your Dynasty holder die, the Dynasty is lost.' : 'It will score 4 Renown at the end.'))),
+      h('div', { class: 'rumour small it' }, h('b', {}, 'At the inn: '), rumour(v, this.me)),
       h('div', { class: 'hands' },
         h('button', { class: 'btn', onclick: () => this.showHand('rite') }, `Rites ${me.rites.length}/3`),
         h('button', { class: 'btn', onclick: () => this.showHand('inv') }, `Investigation ${me.invHand.length}/3`)));
@@ -219,12 +236,13 @@ export class App {
     if (v.phase === 'over') { el.append(h('div', { class: 'waiting' }, 'The twelfth Flood has receded.', h('button', { class: 'btn primary', onclick: () => this.showResults() }, 'See the results'))); return; }
     if (!cur || cur.i !== this.me || v.pending || this.busy) {
       const key = v.pending ? v.houses[v.pending.h].name : cur ? cur.name : v.houses[0].name;
-      const msg = v.pending ? (v.pending.type === 'pact' ? 'An Envoy waits on your answer' : `${dn(key)} weighs its Accords`) : cur ? `${lordName(cur)} of ${dn(key)} is deciding` : 'The world turns';
+      const msg = v.pending ? (v.pending.type === 'pact' ? 'An Envoy waits on your answer' : v.pending.h === this.me ? 'Choose your Accords' : `${dn(key)} weighs its Accords`) : cur ? `${lordName(cur)} of ${dn(key)} is deciding` : 'The world turns';
       el.append(h('div', { class: 'waiting' }, icon(img.shield(key), 'quill'), `${msg}…`));
       return;
     }
     const me = v.houses[this.me]; const H = HOUSES[me.name];
-    const cat = E.actionCatalog(this.state, this.me);
+    let cat = E.actionCatalog(this.state, this.me);
+    if (this.mobile) cat = [...cat.filter((c) => c.ok), ...cat.filter((c) => !c.ok)];   // phones: what you can do first
     const hint = this.mode ? this.modeHint() : 'Choose an Action, or tap a Plot to see what you can do there.';
     el.append(h('div', { class: 'act-head' }, h('div', { class: 'who' }, `Your Action ${v.round + 1} of 3`), h('div', { class: 'hint' }, hint, this.mode ? [' ', h('button', { class: 'btn', style: { minHeight: '34px', padding: '0 10px', fontSize: '15px' }, onclick: () => this.cancelMode() }, 'Cancel')] : null)));
     const grid = h('div', { class: 'act-grid' });
@@ -384,7 +402,7 @@ export class App {
     switch (f.t) {
       case 'harvest': {
         W.setSeason(v.season); this.audio.setSeason(v.season);
-        this.banner(`Season ${ROMAN[v.season]}`, `${seasonLook(v.season).name} · Harvest`);
+        this.banner(`Season ${ROMAN[v.season]}`, seasonOpening(this.state));
         if (k > 0.1) await this.dice(f.dice, k);
         this.audio.play(f.sum === 7 ? 'seven' : 'harvest');
         await W.play(f, v);
@@ -422,7 +440,28 @@ export class App {
       case 'toil': this.audio.play('build'); break;
       case 'fortify': this.audio.play('keep'); break;
     }
+    if (['pact', 'refused', 'oathbreak', 'raid', 'dynasty', 'succession'].includes(f.t)) {
+      let qs = quotesForFx(this.state, f);
+      if (f.t === 'raid' && f.h !== this.me && f.target !== this.me) qs = qs.slice(0, 1);   // others' wars: one voice
+      this.speak(qs);
+    }
     if (k > 0.1) await Promise.race([W.play(f, v), sleep(2500)]);
+  }
+  // Lords speak: short quotes in a queue that never blocks play.
+  speak(quotes) {
+    this.speechQ = (this.speechQ || []).concat(quotes).slice(-4);
+    if (this.speaking) return;
+    const next = () => {
+      const q = this.speechQ.shift(); if (!q) { this.speaking = false; return; }
+      this.speaking = true;
+      document.getElementById('speech')?.remove();
+      const house = this.state.houses[q.h];
+      const el = h('div', { id: 'speech', class: 'vellum gilt' }, h('img', { src: img.shield(house.name), alt: '' }),
+        h('div', {}, h('div', { class: 'who' }, `${q.speaker} of ${dn(house.name)}`), h('div', { class: 'say' }, `“${q.text}”`)));
+      this.ui.append(el);
+      setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); next(); }, 350); }, Math.max(1600, 3400 * this.speedK()));
+    };
+    next();
   }
   dice(d, k) {
     const wrap = h('div', { id: 'dice' });
@@ -470,6 +509,7 @@ export class App {
       h('button', { class: 'close', 'aria-label': 'Close', onclick: () => this.closePlot() }, '×'),
       h('h3', {}, p.name),
       h('div', { class: 'meta' }, icon(img.res(p.res)), ` ${RES_NAME[p.res]} on a ${p.n} · pays on ${pips(p.n)} rolls in 36 · Reach ${reach.roman}, ${reach.name}${reach.delta ? ' (scores double)' : ''}`),
+      h('div', { class: 'small it', style: { margin: '4px 0' } }, plotLore(pid)),
       h('div', { class: 'holders' }, holders.length ? holders.map((x) => h('div', { class: 'holder' }, h('img', { src: img.shield(x.name), alt: '' }),
         `${dn(x.name)}: ${plot.m[x.i] === 2 ? 'Keep (2 markers)' : plot.m[x.i] ? '1 marker' : 'no marker'}${plot.l[x.i] ? `, ${plot.l[x.i]} Legion${plot.l[x.i] > 1 ? 's' : ''}` : ''}`)) : h('div', { class: 'it muted' }, 'Unclaimed land.')),
       (plot.contests || []).length ? h('div', { class: 'small ver' }, `Contested: ${plot.contests.map((c) => `${dn(v.houses[c.victim].name)} may recapture from ${dn(v.houses[c.captor].name)}`).join('; ')}.`) : null,
@@ -569,6 +609,7 @@ export class App {
     const v = this.view; const x = v.houses[i]; const H = HOUSES[x.name];
     this.modal([h('div', { class: 'house-head', style: { justifyContent: 'center' } }, h('img', { src: img.shield(x.name), alt: '' }), h('div', {}, h('h2', {}, `House ${dn(x.name)}`), h('div', { class: 'it' }, `the ${H.title} · "${LORE[x.name].words}"`))),
       h('p', { class: 'lede' }, `${lordName(x)}, ${TRAITS[x.lord.trait].name.toLowerCase()} lord of ${LORE[x.name].seat}: ${TRAITS[x.lord.trait].text}.`),
+      h('p', { class: 'it', style: { textAlign: 'center', fontSize: '18px' } }, `“${greeting(this.state.houses[x.i], this.state, String(this.state.season))}”`),
       h('p', { class: 'small it', style: { textAlign: 'center' } }, LORE[x.name].history),
       h('p', { class: 'small', style: { textAlign: 'center' } }, H.blurb),
       v.rules === 'expanded' ? h('p', { class: 'small', style: { textAlign: 'center' } }, `Regards you as ${attitude(x.regard[this.me] || 0).word.toLowerCase()}${x.pacts.length ? ` · Pacts with ${x.pacts.map((p) => dn(v.houses[p.with].name)).join(', ')}` : ''}${x.oaths ? ` · has broken ${x.oaths} oath${x.oaths > 1 ? 's' : ''}` : ''}.`) : null,
@@ -635,13 +676,13 @@ export class App {
     const card = h('div', { class: 'card event-card' }, h('img', { class: 'art', src: img.art('event', id, { id }), alt: '' }),
       h('div', { class: 'body' }, h('div', { class: 'kind' }, 'Event'), h('h4', {}, ev.name), h('p', {}, ev.text)));
     const auto = this.settings.speed === 'instant' ? 400 : 5200 * this.speedK();
-    return this.waitModal([card, line ? h('p', { class: 'lede' }, line.replace(/^Event: [^.]+\. /, '')) : null, h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: () => this.closeModal() }, 'Continue'))], auto);
+    return this.waitModal([card, h('p', { class: 'lede it' }, eventFlavour(id, this.state)), line ? h('p', { class: 'lede' }, line.replace(/^Event: [^.]+\. /, '')) : null, h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: () => this.closeModal() }, 'Continue'))], auto);
   }
   showFlood(res, v) {
     const rows = res.reaches.map((r) => {
       const reach = REACHES[r.reach - 1];
       const counts = r.counts.map((n, i) => (n ? `${dn(v.houses[i].name)} ${n}` : null)).filter(Boolean).join(', ') || 'empty';
-      return h('tr', {}, h('td', {}, `${reach.roman} ${reach.name}${reach.delta ? ' (×2)' : ''}`), h('td', { class: 'small' }, counts),
+      return h('tr', {}, h('td', {}, `${reach.roman} ${reach.name}${reach.delta ? ' (×2)' : ''}`, h('div', { class: 'small it muted' }, reachVerdict(r.reach, r.first != null ? v.houses[r.first].name : null, r.first == null && r.counts.some((n) => n > 0), `${res.season}`))), h('td', { class: 'small' }, counts),
         h('td', {}, r.first != null ? [h('img', { src: img.shield(v.houses[r.first].name), alt: '' }), ` +${r.pts[0]}`] : h('span', { class: 'it muted' }, 'tied or empty')),
         h('td', {}, r.second != null && r.pts[1] ? [h('img', { src: img.shield(v.houses[r.second].name), alt: '' }), ` +${r.pts[1]}`] : '–'));
     });
@@ -655,7 +696,7 @@ export class App {
     for (const b of res.bonuses) life.push(`${dn(v.houses[b.h].name)} scores ${b.why} in Reach ${REACHES[b.reach - 1].roman}.`);
     const final = res.season === 12;
     const standings = E.standings(this.state);
-    return this.waitModal([h('h2', {}, `The Flood of Season ${ROMAN[res.season]}`), h('p', { class: 'lede' }, final ? 'The last Flood: first place 6, second 3, the Delta Mouth doubled.' : 'Each Reach goes to the House with strictly the most markers: 3 Renown, the Delta Mouth 6.'),
+    return this.waitModal([h('h2', {}, `The Flood of Season ${ROMAN[res.season]}`), h('p', { class: 'lede it' }, floodFlavour(this.state, res)), h('p', { class: 'small', style: { textAlign: 'center' } }, final ? 'The last Flood: first place 6, second 3, the Delta Mouth doubled.' : 'Each Reach goes to the House with strictly the most markers: 3 Renown, the Delta Mouth 6.'),
       h('table', { class: 'score-table' }, h('tr', {}, h('th', {}, 'Reach'), h('th', {}, 'Markers'), h('th', {}, 'First'), h('th', {}, 'Second')), rows),
       life.length ? [h('div', { class: 'rule' }), h('h3', { style: { textAlign: 'center', fontSize: '22px' } }, 'Life of the Houses'), h('ul', { class: 'facts' }, life.map((t) => h('li', {}, t)))] : null,
       h('div', { class: 'rule' }),
@@ -675,7 +716,7 @@ export class App {
     const tb = s.final.tieBreak && s.final.tieBreak !== 'shared' ? `Renown was tied; broken by ${s.final.tieBreak}.` : s.final.tieBreak === 'shared' ? 'A perfect tie: the victory is shared.' : '';
     this.modal([h('div', { style: { textAlign: 'center' } }, h('img', { src: img.shield(s.houses[s.winner[0]].name, 192), alt: '', style: { width: '110px' } })),
       h('h2', {}, won ? 'Hollowmere is yours' : `${s.winner.map((i) => dn(s.houses[i].name)).join(' and ')} take${s.winner.length > 1 ? '' : 's'} Hollowmere`),
-      h('p', { class: 'lede' }, won ? 'The river bends to your banner.' : 'Your House endures, but another holds the river.', tb ? ` ${tb}` : ''),
+      h('p', { class: 'lede' }, epilogue(s, s.winner), tb ? ` ${tb}` : ''),
       h('table', { class: 'score-table' }, h('tr', {}, h('th', {}, ''), h('th', {}, 'House'), h('th', {}, 'Renown'), h('th', {}, 'From'), h('th', {}, 'Markers'), h('th', {}, 'Coffer')), rows),
       h('div', { class: 'rule' }),
       h('details', {}, h('summary', { class: 'it', style: { cursor: 'pointer', textAlign: 'center', fontSize: '18px' } }, 'The Chronicle of these twelve Seasons'),

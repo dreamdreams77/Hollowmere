@@ -79,7 +79,7 @@ h1, h2, h3 { font-weight: 400; margin: 0; letter-spacing: .02em; }
 #menuBtn { position: fixed; top: calc(8px + var(--safe-t)); right: 8px; width: 48px; height: 48px; padding: 0; }
 
 /* left: your House */
-#mine { position: fixed; left: 10px; top: calc(70px + var(--safe-t)); width: 300px; padding: 12px; max-height: calc(100vh - 430px); min-height: 0; overflow-y: auto; }
+#mine { position: fixed; left: 10px; top: calc(70px + var(--safe-t)); width: 300px; padding: 12px; max-height: calc(100vh - 430px); min-height: 0; scrollbar-width: thin; overflow-y: auto; }
 .house-head { display: flex; gap: 10px; align-items: center; }
 .house-head img { width: 54px; height: 60px; } .house-head h2 { font-size: 26px; line-height: 1; } .house-head .tt { font-style: italic; color: var(--ink-soft); }
 .scores { display: flex; gap: 14px; margin: 8px 0 2px; font-size: 22px; } .scores span { display: inline-flex; align-items: center; gap: 4px; }
@@ -171,12 +171,21 @@ h1, h2, h3 { font-weight: 400; margin: 0; letter-spacing: .02em; }
 #toast { position: fixed; left: 50%; bottom: calc(150px + var(--safe-b)); transform: translateX(-50%); padding: 8px 16px; font-size: 17px; z-index: 45; max-width: min(560px, 92vw); text-align: center; pointer-events: none; animation: toast 3.2s forwards; }
 @keyframes toast { 0% { opacity: 0; transform: translate(-50%, 10px); } 10%, 85% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
 
+/* lords speaking */
+#speech { position: fixed; right: 270px; top: calc(76px + var(--safe-t)); max-width: 360px; display: flex; gap: 10px; align-items: center; padding: 8px 12px; z-index: 33; pointer-events: none; animation: speechIn .35s both; transition: opacity .35s, transform .35s; }
+#speech img { width: 40px; height: 45px; flex: none; } #speech .who { font-size: 13px; color: var(--vermilion); font-style: italic; } #speech .say { font-size: 17px; line-height: 1.2; }
+#speech.out { opacity: 0; transform: translateY(-8px); }
+@keyframes speechIn { from { opacity: 0; transform: translateY(-8px); } }
+.rumour { margin-top: 8px; padding: 6px 8px; border-left: 3px solid var(--vermilion); background: rgba(255,255,255,.25); }
+#banner p { max-width: min(640px, 86vw); margin: 2px auto 0; }
 /* menu */
 #menu .sheet { width: min(460px, 94vw); } #menu .pick-list .btn { justify-content: center; }
 
 /* bottom sheet tabs (phones) */
 #tabs { display: none; }
 
+/* shorter laptop screens: the House panel matters more than the running chronicle */
+@media (max-height: 940px) and (min-width: 821px) { #chron { display: none; } #mine { max-height: calc(100vh - 260px); } }
 /* ------------------------------------------------ medium screens */
 @media (max-width: 1180px) {
   #mine { width: 260px; } #rivals { width: 210px; } .rival { grid-template-columns: 32px 1fr auto; } .rival img.sh { width: 32px; height: 36px; }
@@ -203,6 +212,7 @@ h1, h2, h3 { font-weight: 400; margin: 0; letter-spacing: .02em; }
   .sheet-pane .rival { margin-bottom: 6px; }
   #plot { left: 6px !important; right: 6px; top: auto !important; bottom: calc(58vh + 4px); width: auto; max-height: 34vh; overflow-y: auto; }
   #toast { bottom: calc(60vh + var(--safe-b)); }
+  #speech { right: 8px; left: 8px; top: calc(62px + var(--safe-t)); max-width: none; } #speech .say { font-size: 15px; }
   .house-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; } .house-pick img { width: 46px; height: 52px; } .house-pick .nm { font-size: 16px; } .house-pick .tt { font-size: 12px; }
   .title-card { padding: 16px 12px; }
   .card { width: 156px; } .card h4 { font-size: 17px; } .card p { font-size: 13px; }

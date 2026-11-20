@@ -204,7 +204,7 @@ export function paintPatch(mat, { sway = 0, snowCap = 1 } = {}) {
 }
 
 export function buildTerrain(quality) {
-  const step = quality === 'low' ? 0.55 : quality === 'medium' ? 0.42 : 0.33;
+  const step = quality === 'low' ? 0.42 : quality === 'medium' ? 0.38 : 0.33;
   const W = WORLD.x1 - WORLD.x0, D = WORLD.z1 - WORLD.z0;
   const nx = Math.round(W / step), nz = Math.round(D / step);
   const geo = new THREE.PlaneGeometry(W, D, nx, nz);

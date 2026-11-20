@@ -33,14 +33,14 @@ export class World {
   async init() {
     const q = this.quality;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, powerPreference: 'high-performance' });
-    r.shadowMap.enabled = true; r.shadowMap.type = q === 'low' ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+    r.shadowMap.enabled = true; r.shadowMap.type = q === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0; r.outputColorSpace = THREE.SRGBColorSpace;
     const scene = this.scene = new THREE.Scene();
     scene.background = new THREE.Color('#1c140e'); scene.fog = new THREE.Fog('#1c140e', 140, 330);
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.5, 900);
     // light
     const sun = this.sun = new THREE.DirectionalLight('#fff1d6', 3.4);
-    sun.castShadow = true; const sm = q === 'high' ? 4096 : q === 'medium' ? 2048 : 1024;
+    sun.castShadow = true; const sm = q === 'high' ? 4096 : 2048;
     sun.shadow.mapSize.set(sm, sm); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.05;
     const sc = sun.shadow.camera; sc.left = -52; sc.right = 52; sc.top = 56; sc.bottom = -56; sc.near = 1; sc.far = 260;
     scene.add(sun, sun.target);
@@ -73,9 +73,10 @@ export class World {
       scene.add(m); this.pickers.push(m);
     }
     // post
-    this.post = makePost(r, scene, this.camera, 16, 16, { ssaa: 1, ao: q === 'high', taps: q === 'high' ? 64 : 40, aoRadius: 1.2, aoScale: 1.4 });
+    this.post = makePost(r, scene, this.camera, 16, 16, { ssaa: 1, ao: q === 'high', taps: q === 'high' ? 64 : 28, aoRadius: 1.2, aoScale: 1.4, fxaa: q !== 'high' });
     const d = this.post.dof; d.aper = 9; d.maxCoc = q === 'low' ? 0 : 9; d.band = { y: 0.48, w: 0.24, amp: 6, mix: 0.5, tilt: 0, pow: 1.5 };
     if (q === 'low') { this.post.bloom.enabled = false; }
+    this.fit();
     this.post.bloom.strength = 0.22; this.post.bloom.threshold = 0.85;
     this.raycaster = new THREE.Raycaster();
     this.bindInput();
@@ -100,13 +101,13 @@ export class World {
   resize() {
     const w = this.canvas.clientWidth || window.innerWidth, h = this.canvas.clientHeight || window.innerHeight;
     const forced = +(new URLSearchParams(location.search).get('scale') || 0);
-    const dpr = forced || Math.min(window.devicePixelRatio || 1, this.quality === 'high' ? 2 : 1.5) * this.renderScale;
+    const dpr = forced || Math.min(window.devicePixelRatio || 1, this.quality === 'high' ? 2 : this.quality === 'medium' ? 1.75 : 1.6) * this.renderScale;
     this.renderer.setPixelRatio(dpr); this.renderer.setSize(w, h, false);
     this.post.composer.setPixelRatio(dpr); this.post.composer.setSize(w, h);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
-    // portrait screens: pull back so the whole board fits
-    this.portrait = h > w;
-    this.fitDist = this.portrait ? 104 * Math.min(2.0, h / w * 1.05) : 104 * Math.max(1, 1.45 / (w / h));
+    if (this.post.fxaa) this.post.fxaa.material.uniforms.resolution.value.set(1 / (w * dpr), 1 / (h * dpr));
+    this.W = w; this.H = h; this.portrait = h > w;
+    this.fit();
   }
 
   setSeason(s, snap = false) {
@@ -138,7 +139,8 @@ export class World {
   // Camera ------------------------------------------------------------------------------------
   focusPlot(pid, dist = 38) {
     const [x, z] = plotCentre(pid); this.camGoal.target.set(x, Math.max(heightAt(x, z), 0), z + 1.5);
-    this.camGoal.dist = Math.min(this.camGoal.dist, dist);
+    this.camGoal.dist = Math.min(this.camGoal.dist, dist); this.userMoved = true;
+    if (dist < 45) this.camGoal.pitch = Math.min(this.camGoal.pitch, 0.86);   // close up: a lower, model-maker's angle
   }
   // Bring a set of Plots into the clear middle of the screen (used when an Action asks for a target).
   frameTargets(pids) {
@@ -148,21 +150,43 @@ export class World {
     x /= pids.length; z /= pids.length;
     let spread = 0; for (const p of pids) { const [a, b] = plotCentre(p); spread = Math.max(spread, Math.hypot(a - x, b - z)); }
     this.camGoal.target.set(x, 0, z + 2);
-    this.camGoal.dist = THREE.MathUtils.clamp(spread * 2.6 + 34, 40, this.fitDist || 104);
+    this.camGoal.dist = THREE.MathUtils.clamp(spread * 2.6 + 34, 40, this.fitDist || 104); this.userMoved = true;
   }
   // True if the Plot's centre is hidden behind the interface.
   plotCovered(pid) {
     const s = this.plotScreen(pid); const el = document.elementFromPoint(s.x, s.y);
     return !el || el !== this.canvas;
   }
-  resetView() { this.camGoal.target.set(0, 0, this.portrait ? 9 : 4); this.camGoal.dist = this.fitDist || 104; this.camGoal.yaw = 0; this.camGoal.pitch = 0.98; }
-  zoom(f) { this.camGoal.dist = THREE.MathUtils.clamp(this.camGoal.dist * f, 18, (this.fitDist || 104) * 1.3); }
+  // The part of the screen not covered by the interface; the board is framed inside it.
+  setSafeArea(r) { this.safe = r; this.fit(); }
+  // Find the distance at which the whole board fits the safe area at the default angle.
+  fit() {
+    const W = this.W || window.innerWidth, H = this.H || window.innerHeight;
+    const s = this.safe || { x: 0, y: 0, w: W, h: H };
+    this.pitch0 = this.portrait ? 1.13 : 0.98;
+    const cam = this.camera.clone(); cam.aspect = W / H; cam.clearViewOffset(); cam.updateProjectionMatrix();
+    const corners = []; for (const x of [BOARD.x0 - 1, BOARD.x1 + 1]) for (const z of [BOARD.z0 - 1, BOARD.z1 + 1]) for (const y of [0, 2.5]) corners.push(new THREE.Vector3(x, y, z));
+    const target = new THREE.Vector3(0, 0, 1.5);
+    const fits = (d) => {
+      cam.position.set(target.x, target.y + Math.sin(this.pitch0) * d, target.z + Math.cos(this.pitch0) * d); cam.lookAt(target); cam.updateMatrixWorld();
+      for (const c of corners) { const p = c.clone().project(cam); const px = (p.x * 0.5 + 0.5) * W, py = (-p.y * 0.5 + 0.5) * H; if (Math.abs(px - W / 2) > s.w / 2 - 6 || Math.abs(py - H / 2) > s.h / 2 - 6) return false; }
+      return true;
+    };
+    let lo = 20, hi = 400; for (let i = 0; i < 28; i++) { const m = (lo + hi) / 2; if (fits(m)) hi = m; else lo = m; }
+    this.fitDist = hi; this.fitTarget = target;
+    // shift the picture so the board's centre sits in the middle of the safe area
+    this.camera.setViewOffset(W, H, W / 2 - (s.x + s.w / 2), H / 2 - (s.y + s.h / 2), W, H);
+    if (!this.userMoved) this.resetView();
+  }
+  resetView() { this.camGoal.target.copy(this.fitTarget || new THREE.Vector3(0, 0, 4)); this.camGoal.dist = this.fitDist || 104; this.camGoal.yaw = 0; this.camGoal.pitch = this.pitch0 || 0.98; this.userMoved = false; }
+  zoom(f) { this.userMoved = true; this.camGoal.dist = THREE.MathUtils.clamp(this.camGoal.dist * f, 16, (this.fitDist || 104) * 1.3); }
   pan(dx, dz) {
+    this.userMoved = true;
     const c = Math.cos(this.cam.yaw), s = Math.sin(this.cam.yaw); const k = this.cam.dist / 80;
     this.camGoal.target.x = THREE.MathUtils.clamp(this.camGoal.target.x + (dx * c + dz * s) * k, BOARD.x0 - 6, BOARD.x1 + 6);
     this.camGoal.target.z = THREE.MathUtils.clamp(this.camGoal.target.z + (-dx * s + dz * c) * k, BOARD.z0 - 6, BOARD.z1 + 6);
   }
-  rotate(dyaw, dpitch = 0) { this.camGoal.yaw = THREE.MathUtils.clamp(this.camGoal.yaw + dyaw, -1.1, 1.1); this.camGoal.pitch = THREE.MathUtils.clamp(this.camGoal.pitch + dpitch, 0.45, 1.35); }
+  rotate(dyaw, dpitch = 0) { this.userMoved = true; this.camGoal.yaw = THREE.MathUtils.clamp(this.camGoal.yaw + dyaw, -1.1, 1.1); this.camGoal.pitch = THREE.MathUtils.clamp(this.camGoal.pitch + dpitch, 0.45, 1.4); }
 
   bindInput() {
     const el = this.canvas; const ptrs = new Map(); let drag = null, moved = 0, pinch = null;
@@ -253,8 +277,9 @@ export class World {
   adapt(ms, dt) {
     this.frameMs = this.frameMs * 0.95 + dt * 1000 * 0.05;
     this.adaptT = (this.adaptT || 0) + dt; if (this.adaptT < 2) return; this.adaptT = 0;
-    if (this.frameMs > 40 && this.renderScale > 0.55) { this.renderScale = Math.max(0.55, this.renderScale - 0.15); this.resize(); }
-    else if (this.frameMs < 20 && this.renderScale < 1) { this.renderScale = Math.min(1, this.renderScale + 0.1); this.resize(); }
+    if (this.frameMs > 60 && this.post.dof.maxCoc > 0) { this.post.dof.maxCoc = 0; }                                      // drop the blur before the sharpness
+    else if (this.frameMs > 48 && this.renderScale > 0.75) { this.renderScale = Math.max(0.75, this.renderScale - 0.1); this.resize(); }
+    else if (this.frameMs < 22 && this.renderScale < 1) { this.renderScale = Math.min(1, this.renderScale + 0.05); this.resize(); }
     void ms;
   }
 

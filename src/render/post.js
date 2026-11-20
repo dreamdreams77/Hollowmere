@@ -3,6 +3,7 @@
 // MIT licence, Copyright (c) 2026 Lemomo (LemoLab): https://github.com/lemomo-ai/lemo-opuscar
 // Changes for real time: tap count and supersampling come from the quality tier; resize support;
 // the depth-of-field gather can be switched off on low quality.
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
@@ -130,6 +131,8 @@ export function makePost(renderer, scene, camera, w, h, o = {}) {
   const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), .25, .6, 1.2);
   const grade = new ShaderPass(gradeShader);
   const out = new OutputPass();
-  composer.addPass(dof); composer.addPass(bloom); composer.addPass(grade); composer.addPass(out);
-  return { composer, dof, bloom, grade };
+  // Hollowmere: FXAA after output for tiers that render without supersampling (phones).
+  const fxaa = new ShaderPass(FXAAShader); fxaa.enabled = !!o.fxaa;
+  composer.addPass(dof); composer.addPass(bloom); composer.addPass(grade); composer.addPass(out); composer.addPass(fxaa);
+  return { composer, dof, bloom, grade, fxaa };
 }

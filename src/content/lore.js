@@ -77,3 +77,32 @@ export function heirName(state, house) {
   return given === house.lord?.given ? L.given[(k + 3) % L.given.length] : given;
 }
 export function lordName(house) { return house.lord ? `${house.lord.given} ${house.lord.epithet}` : dn(house.name); }
+
+// What a lord says when the player opens that House's dossier: three lines in the House's own voice
+// and two by the lord's trait. greeting() picks one without randomness, so it holds steady while the
+// dossier stays open in a Season and changes with the Season.
+export const GREETINGS = {
+  Ash: ['Speak quickly. The forge cools while you talk.', 'Come in. Mind the spears; they are all sharp.', 'Cinderholt welcomes you. Cinderholt has also counted your escort.'],
+  Verrin: ['Sit. Eat something; it is our own bread.', 'Everything at Sheafhall takes patience, including me.', 'Wipe your boots. That is good soil you are carrying off.'],
+  Maelor: ['Welcome to the Countinghouse. Your visit has been noted, and priced.', 'Say what you want. Then say what it is worth.', 'Every guest is a customer. Sit, customer.'],
+  Thorne: ['My grandmother\'s grandmother received yours in this hall. She was kinder.', 'Briarkeep is poor in land and rich in memory. What do you want remembered?', 'Sit below the portraits. They are all listening.'],
+  Wren: ['Pull up a bench. Mind the dog; he votes.', 'The Hearthmoot hears anyone once. Speak up, it is noisy.', 'You have caught us between arguments. That is lucky.'],
+  Sable: ['You found the Shuttered House. Most do not.', 'Sit where the lamp is. I prefer to see my guests.', 'We were not expecting you. We were, of course, prepared.'],
+  Caddoc: ['State your business. A novice will write it down.', 'Quietly, please. The archive is sleeping.', 'Inkwell Abbey records every visit. Make this one worth the ink.'],
+  Raven: ['Before you speak: we already know about the barge.', 'Watchfall sees you. Sit, and tell me something true.', 'Lie if you like. It saves us time later.'],
+};
+export const TRAIT_GREETINGS = {
+  bold: ['Say what you came for. I will answer yes or no, and loudly.', 'If this is about war, you are early. If it is peace, you are late.'],
+  cautious: ['Leave your escort outside. Then we can talk.', 'Whatever it is, I will think about it. For a while.'],
+  covetous: ['Did you bring anything? It helps the conversation.', 'Talk is free here. Everything after the talk is not.'],
+  proud: ['You may approach.', 'You are fortunate to find me receiving.'],
+  cunning: ['I wondered when you would come. Sooner than I guessed.', 'Tell me what you want. Then tell me what you actually want.'],
+  pious: ['The river brought you. Let us see why.', 'Wash your hands in the basin first. It is the custom.'],
+  honourable: ['Ask a straight question and you will get a straight answer.', 'Welcome. You have safe conduct while you are under my roof.'],
+  treacherous: ['My dear friend. Have we ever quarrelled? I do not remember quarrelling.', 'Sit, sit. You look tired. Wine?'],
+};
+export function greeting(house, state = null, salt = '') {
+  const lines = [...(GREETINGS[house.name] || []), ...(TRAIT_GREETINGS[house.lord?.trait] || [])];
+  if (!lines.length) return `${dn(house.name)} receives you.`;
+  return lines[h32(`${state?.seed ?? ''}:${state?.season ?? 0}:${house.name}:${house.lord?.given ?? ''}:${salt}`) % lines.length];
+}

@@ -45,6 +45,7 @@ async function boot() {
     app.settings.speed = params.get('speed') || 'fast';
     app.newGame({ house: params.get('autoplay'), players: +(params.get('players') || 4), rivals: 'random' });
   } else app.showTitle();
+  if (params.get('focus')) setTimeout(() => world.focusPlot(+params.get('focus'), +(params.get('dist') || 30)), 1500);   // QA: look closely at one Plot
   document.addEventListener('pointerdown', () => audio.start(), { once: true });
   const veil = document.getElementById('loading'); veil.classList.add('gone'); setTimeout(() => veil.remove(), 900);
   window.READY = true;

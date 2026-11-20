@@ -14,48 +14,84 @@ import { banner, shade } from '../content/art.js';
 const geoCache = new Map();
 const tint = (hex, k) => shade(hex, k);
 
+function timberFace(k, w, h, y0, z, ang = 0) {
+  // half-timbering: dark posts and a cross brace on a plaster face
+  const s = Math.sin(ang), c = Math.cos(ang); const P = (x, y) => [x * c + z * s, y, -x * s + z * c];
+  for (const x of [-w / 2 + 0.03, 0, w / 2 - 0.03]) k.box(0.05, h, 0.02, '#4a3020', P(x, y0 + h / 2), [0, ang, 0]);
+  k.box(w, 0.05, 0.02, '#4a3020', P(0, y0 + h - 0.03), [0, ang, 0]);
+  k.box(0.04, h * 0.9, 0.02, '#4a3020', P(-w / 4, y0 + h / 2), [0, ang, 0.6]);
+  k.box(0.04, h * 0.9, 0.02, '#4a3020', P(w / 4, y0 + h / 2), [0, ang, -0.6]);
+}
 function manorGeo(name) {
   const key = `manor:${name}`; if (geoCache.has(key)) return geoCache.get(key);
-  const H = HOUSES[name]; const k = new Kit(); const roof = tint(H.colour, -0.1);
-  k.cyl(1.0, 1.1, 0.16, '#8f8676', [0, 0.08, 0], 14);                     // stone footing
-  k.box(1.1, 0.62, 0.7, '#e3d6b8', [0, 0.47, 0]);
-  k.gable(1.22, 0.86, 0.5, roof, [0, 0.78, 0]);
-  k.box(0.38, 1.25, 0.38, '#d2c4a4', [-0.55, 0.78, -0.2]);
-  k.cone(0.32, 0.5, roof, [-0.55, 1.65, -0.2], 4, [0, Math.PI / 4, 0]);
-  k.box(0.16, 0.26, 0.03, '#3a2614', [0.1, 0.29, 0.36]);
-  for (const x of [-0.3, 0.38]) k.box(0.1, 0.13, 0.02, '#2a1a10', [x, 0.56, 0.36]);
-  // palisade
-  for (let i = 0; i < 22; i++) {
-    const a = i / 22 * Math.PI * 2; if (Math.abs(a - Math.PI / 2) < 0.28) continue;
-    k.cyl(0.035, 0.04, 0.34 + (i % 2) * 0.05, '#7a5a36', [Math.cos(a) * 0.95, 0.24, Math.sin(a) * 0.95], 5);
+  const H = HOUSES[name]; const k = new Kit(); const roof = tint(H.colour, -0.1), roofD = tint(H.colour, -0.3);
+  k.cyl(1.0, 1.1, 0.16, '#8f8676', [0, 0.08, 0], 16);                          // stone footing
+  // hall: stone ground course, plaster and timber above
+  k.box(1.16, 0.26, 0.76, '#9a9286', [0, 0.29, 0]);
+  k.box(1.1, 0.4, 0.7, '#ece0c2', [0, 0.62, 0]);
+  timberFace(k, 1.1, 0.4, 0.42, 0.36); timberFace(k, 1.1, 0.4, 0.42, -0.36);
+  k.gable(1.3, 0.92, 0.52, roof, [0, 0.82, 0]);
+  k.box(1.32, 0.04, 0.05, roofD, [0, 1.34, 0]);                                   // ridge
+  k.box(0.16, 0.42, 0.16, '#8a8276', [0.36, 1.25, 0.12]); k.box(0.2, 0.05, 0.2, '#6f675c', [0.36, 1.47, 0.12]);   // chimney
+  k.box(0.16, 0.27, 0.03, '#3a2614', [0.1, 0.3, 0.385]); k.cyl(0.08, 0.08, 0.03, '#3a2614', [0.1, 0.43, 0.385], 10, [Math.PI / 2, 0, 0]);
+  for (const x of [-0.32, 0.38]) { k.box(0.13, 0.15, 0.03, '#2a1a10', [x, 0.66, 0.37]); k.box(0.17, 0.03, 0.04, '#d6c8a6', [x, 0.58, 0.38]); }
+  for (const x of [-0.3, 0.3]) k.box(0.12, 0.14, 0.03, '#2a1a10', [x, 0.66, -0.37]);
+  // tower with a crenellated top and a cap in House colours
+  k.cyl(0.21, 0.23, 1.35, '#d2c4a4', [-0.58, 0.83, -0.2], 10);
+  k.cyl(0.25, 0.25, 0.08, '#b8ab8f', [-0.58, 1.54, -0.2], 10);
+  for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; k.box(0.07, 0.09, 0.07, '#b8ab8f', [-0.58 + Math.cos(a) * 0.22, 1.62, -0.2 + Math.sin(a) * 0.22]); }
+  k.cone(0.26, 0.55, roof, [-0.58, 1.95, -0.2], 10);
+  for (const y of [0.7, 1.15]) k.box(0.05, 0.12, 0.03, '#2a1a10', [-0.58, y, 0.03]);
+  // barn with thatch, a well, a haystack
+  k.box(0.55, 0.32, 0.4, '#8f6a44', [0.62, 0.32, -0.55]); k.gable(0.62, 0.52, 0.32, '#c9a65a', [0.62, 0.48, -0.55]);
+  k.cyl(0.11, 0.12, 0.16, '#8a8276', [-0.35, 0.24, 0.65], 10); k.box(0.02, 0.26, 0.02, '#4a3020', [-0.43, 0.42, 0.65]); k.box(0.02, 0.26, 0.02, '#4a3020', [-0.27, 0.42, 0.65]); k.gable(0.22, 0.24, 0.12, roofD, [-0.35, 0.55, 0.65]);
+  k.cone(0.16, 0.3, '#d9b04c', [0.7, 0.31, 0.62], 8);
+  // palisade with sharpened stakes
+  for (let i = 0; i < 26; i++) {
+    const a = i / 26 * Math.PI * 2; if (Math.abs(a - Math.PI / 2) < 0.26) continue;
+    const r = 0.98, hh = 0.32 + (i % 3) * 0.04;
+    k.cyl(0.035, 0.04, hh, '#7a5a36', [Math.cos(a) * r, 0.16 + hh / 2, Math.sin(a) * r], 5);
+    k.cone(0.04, 0.08, '#6a4a2a', [Math.cos(a) * r, 0.2 + hh, Math.sin(a) * r], 5);
   }
   k.cyl(0.02, 0.02, 1.1, '#5a3b22', [0.5, 1.05, -0.25], 5);
   const g = k.build(); geoCache.set(key, g); return g;
 }
 function castleGeo(name) {
   const key = `castle:${name}`; if (geoCache.has(key)) return geoCache.get(key);
-  const H = HOUSES[name]; const k = new Kit(); const roof = tint(H.colour, -0.08); const wall = '#d6cbb2', dark = '#bdb19a';
-  k.box(2.2, 0.18, 2.2, '#8f8676', [0, 0.09, 0]);
-  const r = 0.92, wh = 0.75;
+  const H = HOUSES[name]; const k = new Kit(); const roof = tint(H.colour, -0.08); const wall = '#d6cbb2', dark = '#bdb19a', ivy = '#4f6e36';
+  k.box(2.3, 0.2, 2.3, '#8f8676', [0, 0.1, 0]);
+  k.cyl(1.55, 1.7, 0.08, '#7f776a', [0, 0.04, 0], 24);                          // glacis
+  const r = 0.92, wh = 0.78;
   for (const [a, b] of [[[-r, -r], [r, -r]], [[r, -r], [r, r]], [[r, r], [-r, r]], [[-r, r], [-r, -r]]]) {
     const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2, len = Math.hypot(b[0] - a[0], b[1] - a[1]), ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
-    k.box(len, wh, 0.18, wall, [mx, 0.18 + wh / 2, mz], [0, -ang, 0]);
-    k.crenels(a, b, 0.18 + wh, dark, 0.12, 2);
+    k.box(len, wh, 0.2, wall, [mx, 0.2 + wh / 2, mz], [0, -ang, 0]);
+    k.box(len, 0.06, 0.26, dark, [mx, 0.2 + wh, mz], [0, -ang, 0]);           // wall-walk
+    k.crenels(a, b, 0.23 + wh, dark, 0.12, 2);
+    k.box(len * 0.3, wh * 0.5, 0.03, ivy, [mx + Math.cos(ang) * len * 0.15, 0.2 + wh * 0.3, mz + Math.sin(ang) * len * 0.15 + (mz > 0 ? 0.11 : -0.11)], [0, -ang, 0]);
   }
   for (const [x, z] of [[-r, -r], [r, -r], [r, r], [-r, r]]) {
-    k.cyl(0.24, 0.27, 1.25, wall, [x, 0.8, z], 10);
-    k.cyl(0.28, 0.28, 0.08, dark, [x, 1.46, z], 10);
-    k.cone(0.3, 0.6, roof, [x, 1.8, z], 10);
+    k.cyl(0.25, 0.29, 1.35, wall, [x, 0.87, z], 12);
+    k.cyl(0.31, 0.31, 0.09, dark, [x, 1.58, z], 12);
+    for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; k.box(0.08, 0.1, 0.08, dark, [x + Math.cos(a) * 0.28, 1.67, z + Math.sin(a) * 0.28]); }
+    k.cone(0.3, 0.7, roof, [x, 2.05, z], 12);
+    for (const y of [0.7, 1.15]) k.box(0.04, 0.14, 0.03, '#2a1a10', [x, y, z + (z > 0 ? 0.28 : -0.28)]);
   }
-  k.box(0.32, 0.42, 0.06, '#3a2614', [0, 0.38, r + 0.07]);                // gate
-  k.box(0.62, 0.9, 0.62, '#cbbf9f', [0, 1.33, r - 0.05]);                 // gatehouse
-  k.crenels([-0.31, r + 0.26], [0.31, r + 0.26], 1.78, dark, 0.1, 2);
-  // donjon
-  k.box(0.9, 1.9, 0.9, wall, [-0.05, 1.13, -0.1]);
-  k.crenels([-0.5, -0.55], [0.4, -0.55], 2.08, dark, 0.12, 2); k.crenels([-0.5, 0.35], [0.4, 0.35], 2.08, dark, 0.12, 2);
-  k.box(0.42, 0.6, 0.42, wall, [0.15, 2.35, 0.05]); k.cone(0.34, 0.6, roof, [0.15, 2.95, 0.05], 4, [0, Math.PI / 4, 0]);
-  for (const y of [1.2, 1.7]) for (const x of [-0.3, 0.2]) k.box(0.08, 0.16, 0.02, '#2a1a10', [x, y, 0.36]);
-  k.cyl(0.02, 0.02, 1.0, '#5a3b22', [0.15, 3.6, 0.05], 5);
+  // gatehouse with a portcullis
+  k.box(0.7, 1.0, 0.6, '#cbbf9f', [0, 0.7, r + 0.02]);
+  k.box(0.34, 0.46, 0.04, '#2a1a10', [0, 0.43, r + 0.33]);
+  for (let i = 0; i < 4; i++) k.box(0.02, 0.44, 0.02, '#6f675c', [-0.12 + i * 0.08, 0.43, r + 0.36]);
+  k.crenels([-0.35, r + 0.3], [0.35, r + 0.3], 1.2, dark, 0.1, 2);
+  // the keep
+  k.box(0.95, 2.0, 0.95, wall, [-0.05, 1.2, -0.1]);
+  k.box(1.01, 0.08, 1.01, dark, [-0.05, 2.2, -0.1]);
+  k.crenels([-0.55, -0.6], [0.45, -0.6], 2.24, dark, 0.12, 2); k.crenels([-0.55, 0.4], [0.45, 0.4], 2.24, dark, 0.12, 2);
+  k.crenels([-0.55, -0.6], [-0.55, 0.4], 2.24, dark, 0.12, 2); k.crenels([0.45, -0.6], [0.45, 0.4], 2.24, dark, 0.12, 2);
+  k.box(0.44, 0.65, 0.44, wall, [0.15, 2.55, 0.05]); k.cone(0.36, 0.7, roof, [0.15, 3.22, 0.05], 4, [0, Math.PI / 4, 0]);
+  for (const y of [1.1, 1.6]) for (const x of [-0.3, 0.2]) { k.box(0.09, 0.18, 0.03, '#2a1a10', [x, y, 0.385]); k.box(0.13, 0.03, 0.04, dark, [x, y - 0.1, 0.39]); }
+  k.box(0.3, 0.6, 0.03, ivy, [-0.38, 0.6, 0.385]);
+  // houses inside the walls
+  for (const [x, z, c] of [[0.55, 0.45, '#a8432c'], [-0.6, 0.5, '#8a4a2a'], [0.6, -0.55, '#6b4a3a']]) { k.box(0.3, 0.25, 0.25, '#e3d6b8', [x, 0.33, z]); k.gable(0.34, 0.31, 0.18, c, [x, 0.45, z]); }
+  k.cyl(0.02, 0.02, 1.0, '#5a3b22', [0.15, 3.85, 0.05], 5);
   const g = k.build(); geoCache.set(key, g); return g;
 }
 function soldierKit(k, name, x, z, bearer) {
@@ -191,7 +227,7 @@ export class Pieces {
         const b = new THREE.Group();
         b.add(mesh(kind === 'castle' ? castleGeo(name) : manorGeo(name)));
         const ban = bannerMesh(name, kind === 'castle' ? 0.6 : 0.5, kind === 'castle' ? 1.15 : 0.95);
-        ban.position.set(kind === 'castle' ? 0.17 : 0.52, kind === 'castle' ? 4.05 : 1.58, kind === 'castle' ? 0.05 : -0.25);
+        ban.position.set(kind === 'castle' ? 0.17 : 0.52, kind === 'castle' ? 4.3 : 1.58, kind === 'castle' ? 0.05 : -0.25);
         b.add(ban);
         b.scale.setScalar(kind === 'castle' ? 1.5 : 1.6);
         site.group.add(b); site.building = b;

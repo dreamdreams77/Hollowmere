@@ -58,7 +58,7 @@ function scatter(quality) {
     list.push([x, h, z, 0.7 + R() * 0.6, R() * Math.PI * 2]);
     return true;
   };
-  const scale = quality === 'low' ? 0.45 : quality === 'medium' ? 0.7 : 1;
+  const scale = quality === 'low' ? 0.65 : quality === 'medium' ? 0.8 : 1;
   for (const p of PLOTS) {
     const [cx, cz] = plotCentre(p.id);
     const rnd = (n) => Array.from({ length: Math.round(n * scale) }, () => [cx + (R() - 0.5) * 9.4, cz + (R() - 0.5) * 9.4]);
@@ -123,8 +123,9 @@ function sawmill() {
 }
 function quarry() {
   const k = new Kit();
-  for (let i = 0; i < 3; i++) k.box(2.2 - i * 0.5, 0.25, 1.6 - i * 0.35, '#b9b5ad', [0, 0.12 + i * 0.25, -0.2], [0, 0.1, 0]);
-  for (let i = 0; i < 6; i++) k.box(0.35, 0.3, 0.35, '#d7d2c6', [-1.4 + (i % 3) * 0.4, 0.15 + Math.floor(i / 3) * 0.3, 1.0]);
+  for (let i = 0; i < 3; i++) k.box(2.2 - i * 0.5, 0.25, 1.6 - i * 0.35, ['#8f8a80', '#9c968a', '#a8a194'][i], [0, 0.12 + i * 0.25, -0.2], [0, 0.1, 0]);
+  for (let i = 0; i < 6; i++) k.box(0.35, 0.3, 0.35, ['#b3ab9b', '#a59d8e', '#bdb5a4'][i % 3], [-1.4 + (i % 3) * 0.4, 0.15 + Math.floor(i / 3) * 0.3, 1.0], [0, (i % 2) * 0.2, 0]);
+  for (let i = 0; i < 7; i++) k.add(new THREE.DodecahedronGeometry(0.12, 0), '#8a8578', { p: [0.9 + Math.sin(i * 2.3) * 0.5, 0.06, 0.6 + Math.cos(i * 1.7) * 0.4] });
   k.cyl(0.05, 0.06, 2.2, '#5a3b22', [1.3, 1.1, 0], 6); k.box(1.4, 0.06, 0.06, '#5a3b22', [0.8, 2.1, 0], [0, 0, -0.25]);
   k.box(0.02, 0.8, 0.02, '#2a1a10', [0.25, 1.75, 0]); k.box(0.25, 0.2, 0.25, '#d7d2c6', [0.25, 1.3, 0]);
   return mesh(k.build());
@@ -233,7 +234,7 @@ function boat() {
 export function buildScenery(quality) {
   const g = new THREE.Group(); g.name = 'scenery';
   const { conifers, broad, rocks, reeds } = scatter(quality);
-  const sway = quality === 'low' ? 0 : 0.04;
+  const sway = 0.04;
   const ci = instanced(coniferGeo(), conifers.length, sway); fill(ci, conifers, 1.05); g.add(ci);
   const bi = instanced(broadleafGeo(), broad.length, sway); fill(bi, broad, 1.1); g.add(bi);
   const ri = instanced(rockGeo(), rocks.length); fill(ri, rocks, 1.1); g.add(ri);
@@ -272,7 +273,7 @@ export function buildScenery(quality) {
     const side = new THREE.MeshStandardMaterial({ color: '#7a4a26', roughness: 0.7 });
     const top = new THREE.MeshStandardMaterial({ map: tokenTexture(p.n), roughness: 0.75 });
     const tok = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.1, 0.24, 32), [side, top, side]);
-    tok.position.set(tx, heightAt(tx, tz) + 0.12, tz); tok.rotation.y = 0; tok.castShadow = true; tok.receiveShadow = true;
+    tok.position.set(tx, heightAt(tx, tz) + 0.12, tz); tok.rotation.y = Math.PI;   // upright for the default camera (a 6 must not read as a 9) tok.castShadow = true; tok.receiveShadow = true;
     tok.userData.plot = p.id; g.add(tok);
   }
   for (const b of bridgeSites()) {
