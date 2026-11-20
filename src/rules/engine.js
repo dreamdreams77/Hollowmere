@@ -14,7 +14,7 @@ export const clone = (s) => JSON.parse(JSON.stringify(s));
 
 // ---------------------------------------------------------------- setup
 
-export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = null, rules = 'original' } = {}) {
+export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = null, rules = 'original', lords = null } = {}) {
   if (!houses || houses.length < 2 || houses.length > 4) throw new Error('Hollowmere is for 2 to 4 Houses');
   if (new Set(houses).size !== houses.length) throw new Error('each House may be played once');
   const rng = { s: R.hashSeed(seed) };
@@ -49,6 +49,13 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
   });
   // Every House is ruled by a named lord with a trait (story; the AI reads the trait).
   for (const h of state.houses) { h.lord = newLord(state, h); for (const o of state.houses) if (o.i !== h.i) h.regard[o.i] = 0; }
+  // Optional chosen lords ({ houseKey: { given, epithet, trait } }, e.g. a continued lineage). The random
+  // lord is still drawn above, so the rng sequence and every other part of the game are unchanged.
+  for (const h of state.houses) {
+    const o = lords && lords[h.name];
+    if (!o) continue;
+    h.lord = { ...h.lord, given: o.given || h.lord.given, epithet: o.epithet || h.lord.epithet, trait: TRAIT_IDS.includes(o.trait) ? o.trait : h.lord.trait };
+  }
   // Setup step 2: two markers on the seat Plots, one Legion on each (Thorne: one marker).
   for (const h of state.houses) {
     let seatPlots = PLOTS.filter((p) => p.seat === h.seat).map((p) => p.id);

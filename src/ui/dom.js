@@ -28,3 +28,11 @@ export const img = {
 export const icon = (src, cls = 'icon', alt = '') => h('img', { src, class: cls, alt, draggable: 'false' });
 export function put(el, ...kids) { for (const k of kids.flat(Infinity)) if (k != null && k !== false) el.append(k.nodeType ? k : document.createTextNode(String(k))); return el; }
 export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
+
+// Browser storage that never throws (private modes and sandboxed frames may refuse it); falls back to memory.
+const mem = new Map();
+export const store = {
+  getItem(k) { try { const v = globalThis.localStorage?.getItem(k); return v ?? (mem.has(k) ? mem.get(k) : null); } catch { return mem.has(k) ? mem.get(k) : null; } },
+  setItem(k, v) { mem.set(k, String(v)); try { globalThis.localStorage?.setItem(k, v); } catch { /* memory only */ } },
+  removeItem(k) { mem.delete(k); try { globalThis.localStorage?.removeItem(k); } catch { /* memory only */ } },
+};

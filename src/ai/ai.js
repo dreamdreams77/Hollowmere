@@ -7,6 +7,9 @@
 import * as E from '../rules/engine.js';
 import { CONFIG as C, PLOTS, REACHES, HOUSES, RES, riteById, pips, plotById, ADJ } from '../rules/data.js';
 import * as R from '../rules/rng.js';
+import { CONFIG as CONFIG_D, RES_NAME as RES_NAMES } from '../rules/data.js';
+import { dn } from '../content/lore.js';
+const LORE_NAMES = new Proxy({}, { get: (_, k) => dn(k) });
 
 // Weights per House. Unlisted keys fall back to BASE.
 const BASE = {
@@ -23,6 +26,23 @@ export const PERSONA = {
   Caddoc: { rite: 2.2, res: 1.1, aggression: 0.7, style: 'Feeds its Rite hand and casts whenever the Pressure allows.' },
   Raven: { inv: 1.6, heir: 1.2, aggression: 0.6, legion: 1.15, threat: 1.35, reach: 1.1, style: 'Draws Seals and exposes Impostors, avoiding open battle.' },
 };
+// Difficulty (state.difficulty, chosen at setup; the engine ignores it).
+//   easy:   no planning ahead, noisy judgement, sometimes settles for a lesser move, no leader-hunting
+//   normal: the standard AI
+//   hard:   plans further, judges precisely, and leans on whoever leads, the human above all
+export const LEVELS = {
+  easy: { noise: 1.6, plan: false, K: 0, rival: 0, slip: 0.3, humanFocus: 0 },
+  normal: { noise: 0.15, plan: true, K: 6, rival: 0.2, slip: 0, humanFocus: 0 },
+  hard: { noise: 0.05, plan: true, K: 10, rival: 0.2, slip: 0, humanFocus: 0.08 },
+};
+export const level = (s) => LEVELS[s.difficulty] || LEVELS.normal;
+// Hard rivals also start with one Build's worth of resources (stated openly on the setup screen).
+export const HARD_START = { G: 1, T: 1, S: 1 };
+export function applyDifficulty(state, difficulty) {
+  state.difficulty = difficulty;
+  if (difficulty === 'hard') for (const h of state.houses) if (!h.human) for (const [r, n] of Object.entries(HARD_START)) h.coffer[r] += n;
+  return state;
+}
 // A lord's trait bends the House's style (story made mechanical: two Emberlain lords play differently).
 export const TRAIT = {
   bold: { aggression: 1.35, raid: 0.25, threat: 0.8 },
@@ -154,7 +174,9 @@ export function value(s, h) {
   //    position against its own, so it will hurt a leader and help nobody run away.
   let best = -1e9;
   for (const o of s.houses) if (o.i !== h) best = Math.max(best, quickStanding(s, o.i, floods));
-  v -= w.rival * 0.2 * best;
+  const lv = level(s);
+  v -= w.rival * lv.rival * best;
+  if (lv.humanFocus) for (const o of s.houses) if (o.human && o.i !== h) v -= lv.humanFocus * quickStanding(s, o.i, floods);
   // 10. Regard: goodwill makes Pacts possible; being an oathbreaker costs future trust.
   if (s.rules === 'expanded') {
     let good = 0; for (const o of s.houses) if (o.i !== h) good += Math.max(-3, Math.min(3, o.regard?.[h] || 0));
@@ -219,7 +241,7 @@ const BONUS = {
 };
 
 // Score every legal Action; return them best first.
-export function rankActions(state, h = state.turn, { noise = 0.15, plan = true } = {}) {
+export function rankActions(state, h = state.turn, { noise = level(state).noise, plan = level(state).plan, depth = 0 } = {}) {
   const me = state.houses[h]; const w = W(me.name, me.lord);
   const acts = E.legalActions(state, h);
   const base = belief(state, h, 'base');
@@ -259,17 +281,18 @@ export function rankActions(state, h = state.turn, { noise = 0.15, plan = true }
   // makes possible next (trade, then build; save Favor, then found a Dynasty). Rivals' turns in
   // between are skipped, so the follow-up is discounted.
   if (plan && state.round < C.actionsPerSeason - 1) {
-    const K = Math.min(6, scored.length);
+    const K = Math.min(level(state).K || 6, scored.length);
     for (let i = 0; i < K; i++) {
-      const x = scored[i]; if (x.a.type === 'raid' || x.a.type === 'pass' || x.a.type === 'seal' || x.a.type === 'envoy') continue;
+      const x = scored[i]; if (x.a.type === 'pass' || x.a.type === 'seal' || x.a.type === 'envoy') continue;
+      if (x.a.type === 'raid' && !level(state).deep) continue;
       const c = E.clone(base);
-      try { E.applyAction(c, x.a); } catch { continue; }
+      try { E.applyAction(c, x.a, x.a.type === 'raid' ? { skirmish: 'win' } : {}); } catch { continue; }
       if (c.phase !== 'actions' || c.pending) continue;
       c.turn = h; c.round = Math.min(c.round, C.actionsPerSeason - 1);
-      const next = rankActions(c, h, { noise: 0, plan: false });
+      const next = rankActions(c, h, { noise: 0, plan: false, depth: depth + 1 });
       if (!next.length) continue;
       const follow = next[0].score;
-      if (follow > x.score) x.score = x.score + 0.85 * (follow - x.score);
+      if (follow > x.score) x.score = x.score + (x.a.type === 'raid' ? 0.5 : 0.85) * (follow - x.score);
     }
     scored.sort((x, y) => y.score - x.score);
   }
@@ -287,7 +310,13 @@ function applyOn(base, a, h, opts = {}) {
 }
 
 export function chooseAction(state, h = state.turn, opts) {
-  return rankActions(state, h, opts)[0].a;
+  const ranked = rankActions(state, h, opts);
+  const lv = level(state);
+  if (lv.slip && ranked.length > 2) {
+    const r = { s: R.hashSeed(`${state.seed}:${state.seq}:${h}:slip`) };
+    if (R.next(r) < lv.slip) return ranked[1 + R.int(r, Math.min(2, ranked.length - 1))].a;
+  }
+  return ranked[0].a;
 }
 
 // Wren's Accords when Wren is played by the AI are formed by the engine's border rule; this is
@@ -312,4 +341,70 @@ export function playAI(state, { maxSteps = 1000 } = {}) {
     n++;
   }
   return n;
+}
+
+// ---------------------------------------------------------------- adviser
+// Explain an Action in plain words from what it changes for House h (public information only).
+export function explainAction(state, h, a) {
+  const why = [];
+  const P = (id) => plotById(id).name;
+  const before = E.clone({ ...state, log: [], fx: [] });
+  const me = state.houses[h];
+  const reachLine = (s0, s1) => {
+    const out = [];
+    for (const reach of REACHES) {
+      const c0 = E.reachCounts(s0, reach.id), c1 = E.reachCounts(s1, reach.id);
+      const lead = (c) => c[h] > Math.max(0, ...c.filter((_, i) => i !== h));
+      if (!lead(c0) && lead(c1)) out.push(`takes the lead in ${reach.name}${reach.delta ? ' (scores double)' : ''}`);
+      else if (c1[h] > c0[h] && lead(c1)) out.push(`strengthens your hold on ${reach.name}`);
+      const rivalsLed0 = state.houses.filter((x) => x.i !== h && c0[x.i] > Math.max(0, ...c0.filter((_, i) => i !== x.i)));
+      for (const x of rivalsLed0) if (!(c1[x.i] > Math.max(0, ...c1.filter((_, i) => i !== x.i)))) out.push(`breaks ${dnOf(x)}'s lead in ${reach.name}`);
+    }
+    return out;
+  };
+  const dnOf = (x) => LORE_NAMES[x.name] || x.name;
+  let after = null;
+  try { after = E.clone(before); E.applyAction(after, a, a.type === 'raid' ? { skirmish: 'win' } : {}); } catch { return ['Not legal right now.']; }
+  const pipsOf = (pid) => pips(plotById(pid).n);
+  switch (a.type) {
+    case 'build': case 'keep': {
+      const p = plotById(a.plot);
+      why.push(`${a.type === 'keep' ? 'Doubles what' : 'Adds'} ${P(a.plot)} ${a.type === 'keep' ? 'pays you' : 'to your lands'}: ${RES_NAMES[p.res]} on ${p.n === 8 || p.n === 11 ? "an" : "a"} ${p.n} (${pipsOf(a.plot)} rolls in 36)`);
+      break;
+    }
+    case 'muster': why.push(`Guards ${P(a.plot)}: Raiders there would face ${E.legionsOn(state, a.plot, h) + 1} Legion${E.legionsOn(state, a.plot, h) ? 's' : ''}`); break;
+    case 'raid': {
+      const tgt = state.houses[a.target]; const def = E.legionsOn(state, a.to, a.target) + (state.rules === 'expanded' && state.plots[a.to - 1].walls === a.target ? 1 : 0);
+      const att = Math.min(a.n + E.legionsOn(state, a.to, h), 3) + (HOUSES[me.name].skirmish || 0);
+      const p = def ? skirmishWin(att, Math.min(def, 3) + (HOUSES[tgt.name].skirmish || 0)) : 1;
+      why.push(def ? `${Math.round(p * 100)}% chance to win the Skirmish at ${P(a.to)}` : `${P(a.to)} is undefended: a sure capture`);
+      if (E.pactWith(state, h, a.target)) why.push('Breaks your Pact: −1 Renown, −2 Favor, and every House will trust you less');
+      break;
+    }
+    case 'dynasty': why.push(`+${CONFIG_D.dynastyPurchaseRenown} Renown now and +1 at each Flood still to come`); if (!me.heir.knownBy.includes(h)) why.push('Risk: if your holder dies and your Heir is false, you lose 2 Renown and the Dynasty'); break;
+    case 'favor': why.push('+1 Favor toward a Dynasty or revealing your Heir'); break;
+    case 'trade': why.push(`Turns spare ${RES_NAMES[a.give]} into ${RES_NAMES[a.get]}`); break;
+    case 'toil': why.push(`+1 ${RES_NAMES[a.res]}, free`); break;
+    case 'fortify': why.push(`Walls at ${P(a.plot)}: +1 to its defence, and even an empty walled Plot must be fought for`); break;
+    case 'envoy': why.push(`${E.pactAccepts(state, a.target, h, a.gift) ? 'Likely to be accepted' : 'Likely to be refused'}: a Pact keeps ${dnOf(state.houses[a.target])} from raiding you until the end of next Season`); break;
+    case 'investigate': why.push('Draws an Investigation card'); break;
+    case 'vigil': why.push('Learns whether your Heir is Genuine (and replaces one Impostor by marriage)'); break;
+    case 'reveal': why.push('Your Genuine Heir will score 4 Renown at the end'); break;
+    case 'seal': why.push('About 4 in 5 Heirs are Impostors: an exposure is worth 2 Renown'); break;
+    case 'rite': { const r = riteById[a.rite]; why.push(`${r.name}: ${r.text}`); why.push(`Ember Pressure goes to ${state.pressure + E.riteMaker(me, r)}${state.pressure + E.riteMaker(me, r) >= CONFIG_D.pressureThreshold ? ' — at a Flood the heaviest caster loses a marker' : ''}`); break; }
+    case 'pass': why.push(me.coffer.C ? 'Costs 1 Coin and does nothing' : 'Does nothing'); break;
+  }
+  why.push(...reachLine(before, after));
+  const dr = after.houses[h].renown - me.renown; if (dr > 0 && !['dynasty'].includes(a.type)) why.push(`+${dr} Renown`);
+  return why.slice(0, 4).map((w) => w.charAt(0).toUpperCase() + w.slice(1));
+}
+// Top suggestions for House h with reasons; the adviser plays at Normal strength and never peeks.
+export function advise(state, h, n = 3) {
+  const saved = state.difficulty; state.difficulty = 'normal';
+  try {
+    const ranked = rankActions(state, h, { noise: 0 });
+    const out = []; const seen = new Set();
+    for (const x of ranked) { const key = x.a.type + (x.a.plot || x.a.to || x.a.rite || x.a.res || x.a.target || ''); if (seen.has(key)) continue; seen.add(key); out.push({ action: x.a, why: explainAction(state, h, x.a) }); if (out.length >= n) break; }
+    return out;
+  } finally { if (saved === undefined) delete state.difficulty; else state.difficulty = saved; }
 }

@@ -7,7 +7,7 @@ import { vellum, goldLeaf, lapisGround, toURL } from './content/art.js';
 function chooseQuality() {
   const q = new URLSearchParams(location.search).get('q');
   if (q) return q;
-  const saved = JSON.parse(localStorage.getItem('hollowmere.settings.v1') || '{}').quality;
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('hollowmere.settings.v1') || '{}').quality; } catch { return null; } })();
   if (saved) return saved;
   const touch = matchMedia('(pointer: coarse)').matches; const small = Math.min(screen.width, screen.height) < 820;
   const mem = navigator.deviceMemory || 8; const cores = navigator.hardwareConcurrency || 8;

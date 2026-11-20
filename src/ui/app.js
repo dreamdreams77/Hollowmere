@@ -2,8 +2,12 @@
 // source of truth; the interface reads a viewer-filtered copy (engine.view) for the human House.
 import * as E from '../rules/engine.js';
 import { CONFIG, HOUSES, HOUSE_ORDER, PLOTS, REACHES, RES, RES_NAME, RITES, riteById, EVENTS, eventById, INVESTIGATION, pips, plotById } from '../rules/data.js';
-import { chooseAction, suggestAccords, PERSONA } from '../ai/ai.js';
-import { h, img, icon, clear, put } from './dom.js';
+import { chooseAction, suggestAccords, PERSONA, advise, applyDifficulty } from '../ai/ai.js';
+import { Tutorial } from './tutorial.js';
+import { loadRecords, recordGame, resetRecords } from '../meta/records.js';
+import { lordsFor } from '../meta/legacy.js';
+import { renderRecordsSheet, unlockToast, lineageChoice } from './meta-ui.js';
+import { h, img, icon, clear, put, store } from './dom.js';
 import { seasonLook } from '../render/world.js';
 import { LORE, TRAITS, dn, heirName, lordName, greeting } from '../content/lore.js';
 import { seasonOpening, eventFlavour, floodFlavour, reachVerdict, quotesForFx, plotLore, rumour, epilogue } from '../content/chronicle.js';
@@ -25,7 +29,8 @@ export function attitude(r) {
 export class App {
   constructor(world, audio) {
     this.world = world; this.audio = audio; this.ui = document.getElementById('ui');
-    this.settings = { speed: 'normal', sound: true, music: true, quality: null, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    let savedSettings = {}; try { savedSettings = JSON.parse(store.getItem(SETTINGS_KEY) || '{}'); } catch { /* fresh */ }
+    this.settings = { speed: 'normal', sound: true, music: true, quality: null, ...savedSettings };
     audio.setOn(this.settings.sound); audio.setMusic(this.settings.music);
     this.state = null; this.me = null; this.mode = null; this.selected = null; this.lastFx = 0; this.busy = false; this.tab = 'act';
     world.on('pick', (p) => this.onPick(p)); world.on('hover', (p, e) => this.onHover(p, e));
@@ -40,7 +45,7 @@ export class App {
     // Watchdog: if a rival should be acting and nothing is driving the game, start the loop again.
     setInterval(() => { const s = this.state; if (s && s.phase === 'actions' && !s.pending && !this.looping && !this.presenting && !s.houses[s.turn].human && !document.getElementById('modal')) { console.warn('watchdog restarted the game loop'); this.loop(); } }, 3000);
   }
-  saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings)); }
+  saveSettings() { store.setItem(SETTINGS_KEY, JSON.stringify(this.settings)); }
   get mobile() { return this.mobileQ.matches; }
   get view() { return E.view(this.state, this.me); }
   speedK() { return { slow: 1.5, normal: 1, fast: 0.45, instant: 0.05 }[this.settings.speed] ?? 1; }
@@ -51,12 +56,15 @@ export class App {
     if (this.modalResolve) { const r = this.modalResolve; this.modalResolve = null; r(); }
     this.presenting = false;
     clear(this.ui);
-    const saved = localStorage.getItem(SAVE_KEY);
-    const pick = { house: 'Verrin', players: 4, rivals: 'random', rules: this.settings.rules || 'expanded' };
+    const saved = store.getItem(SAVE_KEY);
+    let played = 0; try { played = loadRecords().games || 0; } catch { /* no records */ }
+    const pick = { house: 'Verrin', players: 4, rivals: 'random', rules: this.settings.rules || 'expanded', difficulty: this.settings.difficulty || 'normal', guided: played === 0, lineage: false };
+    const lineSlot = h('div', { class: 'setup-row' });
     const detail = h('div', { class: 'house-detail' });
     const grid = h('div', { class: 'house-grid' });
     const renderDetail = () => {
       const H = HOUSES[pick.house]; const L = LORE[pick.house];
+      pick.lineage = false; clear(lineSlot); const lc = lineageChoice(pick.house, loadRecords(), (on) => { pick.lineage = on; }); if (lc) lineSlot.append(lc);
       put(clear(detail), h('div', {}, h('b', {}, `House ${L.display} of ${L.seat}, the ${H.title}. `), h('span', { class: 'it' }, `"${L.words}"`), DIFFICULTY[pick.house] ? h('span', { class: 'tag v', style: { marginLeft: '6px' } }, DIFFICULTY[pick.house]) : null),
         h('div', { class: 'small it' }, L.history),
         h('div', { class: 'small' }, H.blurb), h('div', { class: 'small muted' }, `Wins by: ${H.winsBy}. Weak at: ${H.weakAt}.`));
@@ -78,25 +86,34 @@ export class App {
       seg('Houses at the table', 'players', [[2, 'Two'], [3, 'Three'], [4, 'Four']]),
       seg('Rival Houses', 'rivals', [['random', 'Drawn by lot'], ['strong', 'Strongest Houses']]),
       seg('Rules', 'rules', [['expanded', 'Expanded: Pacts, Toil, walls'], ['original', 'Original rules']]),
+      seg('Rivals play', 'difficulty', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard (sharper, richer start)']]),
+      seg('Guidance', 'guided', [[true, 'Guided first game'], [false, 'No tips']]),
+      lineSlot,
       h('div', { class: 'setup-row' },
-        h('button', { class: 'btn primary', onclick: () => { this.audio.start(); this.settings.rules = pick.rules; this.saveSettings(); this.newGame(pick); } }, 'Begin the first Season'),
+        h('button', { class: 'btn primary', onclick: () => { this.audio.start(); this.settings.rules = pick.rules; this.settings.difficulty = pick.difficulty; this.saveSettings(); this.newGame(pick); } }, 'Begin the first Season'),
+        h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRecords(); } }, 'Records'),
         saved ? h('button', { class: 'btn blue', onclick: () => { this.audio.start(); this.load(); } }, 'Continue saved game') : null,
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRules(); } }, 'How to play')),
       h('p', { class: 'small muted it' }, 'Drag to move the board, scroll or pinch to zoom, right-drag or twist to turn it.'));
     this.ui.append(h('div', { id: 'title' }, card));
     this.world.resetView(); this.world.camGoal.yaw = 0.35; this.world.camGoal.dist = 70;
   }
-  newGame({ house, players, rivals, rules = this.settings.rules || 'expanded' }) {
+  newGame({ house, players, rivals, rules = this.settings.rules || 'expanded', difficulty = this.settings.difficulty || 'normal', guided = false, lineage = false }) {
     const pool = HOUSE_ORDER.filter((x) => x !== house);
     const strong = ['Ash', 'Maelor', 'Verrin', 'Wren', 'Caddoc', 'Raven', 'Sable', 'Thorne'].filter((x) => x !== house);
     let foes;
     if (rivals === 'strong') foes = strong.slice(0, players - 1);
     else foes = pool.map((x) => [x, Math.random()]).sort((a, b) => a[1] - b[1]).map((x) => x[0]).slice(0, players - 1);
     const seed = `hm-${Date.now().toString(36)}`;
-    this.start(E.newGame({ houses: [house, ...foes], humans: [house], seed, rules }));
+    let lords; try { lords = lordsFor(house, loadRecords(), seed, !!lineage); } catch { lords = undefined; }
+    const state = applyDifficulty(E.newGame({ houses: [house, ...foes], humans: [house], seed, rules, lords }), difficulty);
+    state.guided = !!guided;
+    this.lastSetup = { house, players, rivals, rules, difficulty, lineage };
+    this.start(state);
   }
   start(state) {
-    this.state = state; this.me = state.houses.findIndex((x) => x.human); this.mode = null; this.selected = null;
+    this.state = state; this.me = state.houses.findIndex((x) => x.human); this.mode = null; this.selected = null; this.undo = null;
+    this.tutorial = new Tutorial(this, !!state.guided && state.season === 1);
     this.world.pieces.houses = state.houses; this.world.setSeason(state.season, true); this.audio.setSeason(state.season);
     this.lastFx = 0;
     clear(this.ui); this.buildHUD();
@@ -106,6 +123,7 @@ export class App {
     this.banner(`Season ${ROMAN[state.season]}`, seasonOpening(state));
     this.refresh();
     this.save(true);
+    this.tutorial.on('welcome', { house: state.houses[this.me].name });
     this.loop();
   }
 
@@ -251,6 +269,10 @@ export class App {
     let cat = E.actionCatalog(this.state, this.me);
     if (this.mobile) cat = [...cat.filter((c) => c.ok), ...cat.filter((c) => !c.ok)];   // phones: what you can do first
     const hint = this.mode ? this.modeHint() : 'Choose an Action, or tap a Plot to see what you can do there.';
+    const canUndo = this.undo && this.undo.season === v.season;
+    el.append(h('div', { class: 'act-tools' },
+      h('button', { class: 'btn small-btn', onclick: () => this.showAdvice() }, 'Advise'),
+      canUndo ? h('button', { class: 'btn small-btn', onclick: () => this.doUndo() }, `Undo ${this.undo.label}`) : null));
     el.append(h('div', { class: 'act-head' }, h('div', { class: 'who' }, `Your Action ${v.round + 1} of 3`), h('div', { class: 'hint' }, hint, this.mode ? [' ', h('button', { class: 'btn', style: { minHeight: '34px', padding: '0 10px', fontSize: '15px' }, onclick: () => this.cancelMode() }, 'Cancel')] : null)));
     const grid = h('div', { class: 'act-grid' });
     const costOf = {
@@ -353,6 +375,9 @@ export class App {
     const chk = E.checkAction(this.state, action);
     if (!chk.ok) { this.deny(chk.reason); return; }
     this.closeModal(); this.mode = null; this.world.setSelection({ targets: [] });
+    // Undo: keep the moment before this Action, unless the Action reveals something hidden or random.
+    const reveals = ['investigate', 'seal', 'vigil', 'envoy'].includes(action.type) || (action.type === 'raid' && E.legionsOn(this.state, action.to, action.target) > 0) || (action.type === 'rite' && ['mist_veil', 'drowned_choir', 'ink_of_names'].includes(action.rite)) || (action.type === 'play' && action.card === 'witness');
+    this.undo = reveals ? null : { state: E.clone(this.state), lastFx: this.lastFx, season: this.state.season, label: E.ACTION_LABEL[action.type] };
     const before = this.state.houses[this.me].coffer;
     const snapshot = { ...before };
     E.applyAction(this.state, action);
@@ -377,14 +402,18 @@ export class App {
           E.decide(s, { partners: suggestAccords(s, s.pending.h) }); try { await this.present(); } catch (err) { console.error('presentation failed', err); } continue;
         }
         const cur = s.houses[s.turn];
-        if (cur.human) { this.busy = false; this.refresh(); break; }
+        if (cur.human) { this.busy = false; this.refresh(); this.coach(); break; }
         this.busy = true; this.refresh();
         await sleep(380 * this.speedK());
         const a = chooseAction(s, cur.i);
         E.applyAction(s, a);
         try { await this.present(); } catch (err) { console.error('presentation failed', err); }
       }
-      if (this.state?.phase === 'over') { this.busy = false; this.refresh(); this.save(true); await sleep(600); this.showResults(); }
+      if (this.state?.phase === 'over') {
+        this.busy = false; this.refresh(); this.save(true);
+        try { const { newAchievements } = recordGame(this.state, this.me); newAchievements.forEach((a) => this.ui.append(unlockToast(a))); } catch (err) { console.error('records', err); }
+        await sleep(600); this.showResults();
+      }
     } finally { this.looping = false; }
   }
   async present() {
@@ -419,6 +448,7 @@ export class App {
         this.banner(`Season ${ROMAN[v.season]}`, seasonOpening(this.state));
         if (k > 0.1) await this.dice(f.dice, k);
         this.audio.play(f.sum === 7 ? 'seven' : 'harvest');
+        this.tutorial?.on('harvest', { sum: f.sum });
         await W.play(f, v);
         return;
       }
@@ -431,6 +461,7 @@ export class App {
       case 'flood': {
         this.audio.play('flood'); W.play(f, v);
         await this.showFlood(f.result, v);
+        this.tutorial?.on('flood');
         return;
       }
       case 'over': return;
@@ -556,6 +587,40 @@ export class App {
     this.modal([h('h2', {}, title), text ? h('p', { class: 'lede' }, text) : null,
       h('div', { class: 'pick-list' }, items.map((it) => h('button', { class: 'btn', onclick: () => this.act(it.action) }, it.img ? h('img', { src: it.img, class: 'icon lg', alt: '' }) : null, it.label))),
       h('div', { class: 'row-btns' }, h('button', { class: 'btn', onclick: () => this.closeModal() }, 'Cancel'))]);
+  }
+  // Guidance moments that depend on the board when it is the player's turn.
+  coach() {
+    const T = this.tutorial; if (!T?.enabled) return;
+    const s = this.state; const me = s.houses[this.me];
+    T.on('firstTurn', { canBuild: E.optionsFor(s, this.me, 'build').length > 0 });
+    if (s.season >= 1 && s.round >= 1) T.on('coffer');
+    if (E.optionsFor(s, this.me, 'raid').length) T.on('raidReady');
+    if (E.isFloodSeason(s.season) && s.round === 2) T.on('floodSoon');
+    if (s.season >= 2 && me.rites.length) T.on('rites');
+    if (s.rules === 'expanded' && s.season >= 3) T.on('diplomacy');
+    if (s.season >= 5) T.on('done');
+  }
+  showAdvice() {
+    if (this.state.turn !== this.me) return;
+    const tips = advise(this.state, this.me, 3);
+    this.modal([h('h2', {}, 'Counsel of your steward'), h('p', { class: 'lede' }, 'Three moves worth making, and why. The choice is yours.'),
+      h('div', { class: 'advice' }, tips.map((t, i) => h('div', { class: 'tip' },
+        h('div', { class: 'tip-head' }, h('b', {}, `${i + 1}. ${this.describe(t.action)}`), h('button', { class: 'btn primary small-btn', onclick: () => this.act(t.action) }, 'Do this')),
+        h('ul', {}, t.why.map((w) => h('li', {}, w)))))),
+      h('div', { class: 'row-btns' }, h('button', { class: 'btn', onclick: () => this.closeModal() }, 'Close'))]);
+  }
+  doUndo() {
+    const u = this.undo; if (!u || this.busy || this.presenting) return;
+    this.undo = null; this.state = u.state; this.lastFx = u.lastFx; this.mode = null;
+    this.world.setSelection({ targets: [] });
+    this.world.sync(this.view, false); this.refresh(); this.save(true);
+    this.toast(`${u.label} undone.`);
+    this.loop();
+  }
+  showRecords() {
+    let rec; try { rec = loadRecords(); } catch { rec = null; }
+    if (!rec) { this.toast('Records are not available in this browser.'); return; }
+    this.modal([renderRecordsSheet(rec, { onClose: () => this.closeModal(), onReset: () => this.confirm('Erase the annals?', 'All records and achievements will be lost.', () => { resetRecords(); this.toast('The annals are blank.'); }) })], { cls: 'meta-sheet' });
   }
   showTrade(options) {
     const me = this.state.houses[this.me]; const rate = E.tradeRate(me);
@@ -737,8 +802,8 @@ export class App {
         h('ul', { class: 'facts' }, s.log.filter((l) => l.kind === 'court' || (l.kind === 'flood' && /Flood of/.test(l.text)) || /Catastrophe|breaks its Pact|Seal exposes|unmasked/.test(l.text))
           .map((l) => h('li', {}, h('span', { class: 'it muted', style: { minWidth: '44px' } }, ROMAN[l.season]), h('span', { style: { flex: 1 } }, l.text))))),
       h('div', { class: 'row-btns' },
-        h('button', { class: 'btn primary', onclick: () => { this.closeModal(); localStorage.removeItem(SAVE_KEY); this.showTitle(); } }, 'A new game'),
-        h('button', { class: 'btn', onclick: () => { this.closeModal(); this.newGame({ house: s.houses[this.me].name, players: s.houses.length, rivals: 'random' }); } }, 'Play the same House again'),
+        h('button', { class: 'btn primary', onclick: () => { this.closeModal(); store.removeItem(SAVE_KEY); this.showTitle(); } }, 'A new game'),
+        h('button', { class: 'btn', onclick: () => { this.closeModal(); this.newGame({ ...(this.lastSetup || {}), house: s.houses[this.me].name, players: s.houses.length, rivals: 'random', guided: false }); } }, 'Play the same House again'),
         h('button', { class: 'btn', onclick: () => this.closeModal() }, 'Look at the board'))], { dismiss: false });
   }
   showMenu() {
@@ -748,8 +813,10 @@ export class App {
       h('div', { class: 'pick-list' },
         h('button', { class: 'btn primary', onclick: () => this.closeModal() }, 'Return to the board'),
         this.state ? h('button', { class: 'btn', onclick: () => { this.save(); this.toast('Game saved.'); this.closeModal(); } }, 'Save game') : null,
-        localStorage.getItem(SAVE_KEY) ? h('button', { class: 'btn', onclick: () => { this.closeModal(); this.load(); } }, 'Load saved game') : null,
+        store.getItem(SAVE_KEY) ? h('button', { class: 'btn', onclick: () => { this.closeModal(); this.load(); } }, 'Load saved game') : null,
         h('button', { class: 'btn', onclick: () => { this.closeModal(); this.showRules(); } }, 'How to play'),
+        h('button', { class: 'btn', onclick: () => this.showRecords() }, 'Records and achievements'),
+        this.tutorial ? h('button', { class: 'btn', onclick: () => { this.tutorial.enabled = !this.tutorial.enabled; this.closeModal(); this.toast(this.tutorial.enabled ? 'Guidance is on.' : 'Guidance is off.'); } }, this.tutorial.enabled ? 'Turn guidance off' : 'Turn guidance on') : null,
         h('button', { class: 'btn', onclick: () => { this.closeModal(); this.world.resetView(); } }, 'Reset the view'),
         h('button', { class: 'btn', onclick: () => this.confirm('Abandon this game?', 'Return to the title and choose again. Your autosave is kept until a new game begins.', () => this.showTitle()) }, 'New game')),
       h('div', { class: 'rule' }),
@@ -798,11 +865,11 @@ export class App {
   }
   save(quiet = false) {
     if (!this.state) return;
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, at: Date.now(), state: this.state })); } catch (err) { if (!quiet) this.toast('Could not save: storage is full or blocked.'); }
+    try { store.setItem(SAVE_KEY, JSON.stringify({ v: 1, at: Date.now(), state: this.state })); } catch (err) { if (!quiet) this.toast('Could not save: storage is full or blocked.'); }
   }
   load() {
     try {
-      const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+      const d = JSON.parse(store.getItem(SAVE_KEY) || 'null');
       if (!d?.state) { this.toast('There is no saved game.'); return; }
       this.start(E.migrate(d.state));
       this.toast(`Saved game restored: Season ${ROMAN[d.state.season]}.`);

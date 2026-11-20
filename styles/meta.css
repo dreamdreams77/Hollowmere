@@ -1,0 +1,49 @@
+/* Records, laurels (achievements) and lineages. Builds on main.css: .vellum, .gilt, .btn, .tag, .rule, .score-table. */
+.sheet.meta-sheet { width: min(860px, 96vw); }
+.meta-records .meta-h { font-size: 22px; color: var(--lapis-c); margin: 4px 0 8px; }
+.meta-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 6px 0; }
+.meta-stat { text-align: center; border: 1px solid var(--ink); border-radius: 3px; padding: 6px 4px; background: rgba(255,255,255,.28); }
+.meta-stat .mv { font-size: 26px; line-height: 1.1; color: var(--vermilion); }
+.meta-stat .ml { font-style: italic; font-size: 14px; }
+.meta-houses td:not(:first-child), .meta-houses th:not(:first-child) { text-align: center; }
+.meta-houses tr.muted td { color: var(--ink-soft); opacity: .75; }
+.meta-split { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 0; font-size: 15px; }
+.meta-empty { text-align: center; }
+
+.meta-recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.meta-recent li { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-left: 4px solid var(--ink-soft); background: rgba(255,255,255,.22); border-radius: 2px; }
+.meta-recent li.res-won { border-left-color: var(--gold); } .meta-recent li.res-shared { border-left-color: var(--ultra); } .meta-recent li.res-lost { border-left-color: var(--vermilion); }
+.meta-recent img { width: 30px; height: 34px; flex: none; }
+.meta-recent .mr-main { flex: 1; min-width: 0; } .meta-recent .mr-res { text-align: right; flex: none; }
+
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.ach { display: flex; gap: 8px; align-items: flex-start; padding: 7px 8px; border: 2px solid var(--ink); border-radius: 4px; background: rgba(201,154,62,.28); }
+.ach .ach-ic { width: 34px; height: 38px; object-fit: contain; flex: none; }
+.ach .ach-n { font-size: 17px; line-height: 1.15; } .ach .ach-d { color: var(--ink-soft); line-height: 1.2; } .ach .ach-w { color: var(--gold-d); margin-top: 2px; }
+.ach.on { box-shadow: inset 0 0 0 2px var(--gold-l); }
+.ach.locked { background: rgba(255,255,255,.18); border-style: dashed; border-color: var(--ink-soft); }
+.ach.locked .ach-ic { filter: grayscale(1) opacity(.45); } .ach.locked .ach-n { color: var(--ink-soft); }
+
+.meta-lines { display: grid; gap: 10px; }
+.meta-line { display: flex; gap: 10px; align-items: flex-start; }
+.meta-line > img { width: 44px; height: 50px; flex: none; }
+.meta-line ol { margin: 2px 0 2px 18px; padding: 0; }
+
+.meta-toast { position: fixed; top: calc(70px + var(--safe-t, 0px)); left: 50%; transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center;
+  padding: 8px 16px 8px 10px; max-width: min(460px, 92vw); pointer-events: none; animation: metaToast 4.6s both; }
+.meta-toast + .meta-toast { top: calc(150px + var(--safe-t, 0px)); animation-delay: .5s; }
+.meta-toast + .meta-toast + .meta-toast { top: calc(230px + var(--safe-t, 0px)); animation-delay: 1s; }
+.meta-toast .mt-ic { width: 40px; height: 44px; object-fit: contain; flex: none; }
+.meta-toast .mt-k { color: var(--gold-d); } .meta-toast .mt-n { font-size: 20px; color: var(--lapis-c); line-height: 1.1; }
+@keyframes metaToast { 0% { opacity: 0; transform: translate(-50%, -12px) scale(.96); } 8%, 86% { opacity: 1; transform: translate(-50%, 0) scale(1); } 100% { opacity: 0; transform: translate(-50%, -6px); } }
+
+.lineage-choice { display: inline-flex; gap: 10px; align-items: flex-start; max-width: 640px; margin: 4px auto; padding: 6px 12px; border: 2px solid var(--ink); border-radius: 4px; background: rgba(255,255,255,.22); cursor: pointer; text-align: left; min-height: 44px; }
+.lineage-choice.on { background: rgba(201,154,62,.35); box-shadow: 0 0 0 2px var(--gold); }
+.lineage-choice input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--vermilion); flex: none; }
+.lineage-choice .lc-t { display: flex; flex-direction: column; font-size: 17px; }
+
+@media (max-width: 720px) {
+  .meta-stats { grid-template-columns: repeat(3, 1fr); }
+  .ach-grid { grid-template-columns: 1fr; }
+  .meta-recent .mr-main .small { white-space: normal; }
+}
