@@ -3,3 +3,4 @@ qa/out/
 *.log
 .DS_Store
 qa/out/
+dist/
