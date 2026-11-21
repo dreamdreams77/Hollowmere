@@ -48,6 +48,7 @@ for (let guard = 0; guard < 4000; guard++) {
     const primary = await page.locator('#modal .btn.primary').count();
     if (primary && !/^(Your|The Bank|Seal|Raid|Recapture|Build|Keep|Muster|Cabal|Send an Envoy|Toil|Fortify)/.test(st.modalText) && !st.modalText.includes(':')) { await tapSoft('#modal .btn.primary'); continue; }
   }
+  if (await page.locator('#coach .btn.primary').count()) { await tapSoft('#coach .btn.primary'); continue; }
   if (!st.human || st.busy || st.looping || st.pending || st.phase !== 'actions') continue;
   if (st.mode) { stuck++; if (stuck > 4) { errors.push(`stuck in mode ${st.mode} at Season ${st.season}`); await page.keyboard.press('Escape'); stuck = 0; } } else stuck = 0;
   // Human turn: ask the AI what to do, then do it through the interface.
@@ -126,6 +127,8 @@ for (let guard = 0; guard < 4000; guard++) {
   await page.waitForTimeout(300);
   if (humanActions === 5) await page.screenshot({ path: `${dir}/${String(++shots).padStart(2, '0')}-myturn.png` });
 }
+const extras = await page.evaluate(async () => { const { loadRecords } = await import('/src/meta/records.js'); const r = loadRecords(); return { toasts: document.querySelectorAll('.unlock-toast, .meta-toast, [class*=toast]').length, games: r.games, unlocked: Object.keys(r.achievements || {}).length }; }).catch((e) => ({ err: String(e) }));
+log('extras', JSON.stringify(extras));
 const result = await page.evaluate(() => { const s = window.hollowmere.app.state; return { phase: s.phase, season: s.season, winner: s.winner?.map((i) => s.houses[i].name), standings: s.final?.standings, log: s.log.slice(-3).map((l) => l.text) }; });
 log(JSON.stringify({ result, humanActions, used, minutes: ((Date.now() - t0) / 60000).toFixed(1), errors: errors.slice(0, 20) }, null, 1));
 await browser.close();

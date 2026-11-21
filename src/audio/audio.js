@@ -108,7 +108,7 @@ export class Audio {
     const c = this.ctx; const src = this.noiseSrc(false); const burst = c.createGain();
     burst.gain.setValueAtTime(vel, t); burst.gain.setValueAtTime(0, t + 0.012);
     const d = c.createDelay(0.05); d.delayTime.value = 1 / freq; const fb = c.createGain(); fb.gain.value = 0.985;
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = bright;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = bright; lp.Q.value = -6;   // no resonant peak: inside a feedback loop any gain above 1 makes the filter blow up
     const out = c.createGain(); out.gain.setValueAtTime(0.9, t); out.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
     src.connect(burst).connect(d); d.connect(lp).connect(fb).connect(d); lp.connect(out); out.connect(bus); out.connect(this.verb);
     src.start(t, Math.random()); src.stop(t + 0.05);

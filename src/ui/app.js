@@ -4,6 +4,8 @@ import * as E from '../rules/engine.js';
 import { CONFIG, HOUSES, HOUSE_ORDER, PLOTS, REACHES, RES, RES_NAME, RITES, riteById, EVENTS, eventById, INVESTIGATION, pips, plotById } from '../rules/data.js';
 import { chooseAction, suggestAccords, PERSONA, advise, applyDifficulty } from '../ai/ai.js';
 import { Tutorial } from './tutorial.js';
+import { SCENARIOS, scenarioById } from '../content/scenarios.js';
+const SCEN_KEY = 'hollowmere.scenarios.v1';
 import { loadRecords, recordGame, resetRecords } from '../meta/records.js';
 import { lordsFor } from '../meta/legacy.js';
 import { renderRecordsSheet, unlockToast, lineageChoice } from './meta-ui.js';
@@ -58,8 +60,9 @@ export class App {
     clear(this.ui);
     const saved = store.getItem(SAVE_KEY);
     let played = 0; try { played = loadRecords().games || 0; } catch { /* no records */ }
-    const pick = { house: 'Verrin', players: 4, rivals: 'random', rules: this.settings.rules || 'expanded', difficulty: this.settings.difficulty || 'normal', guided: played === 0, lineage: false };
+    const pick = { house: 'Verrin', players: 4, rivals: 'random', rules: this.settings.rules || 'expanded', difficulty: this.settings.difficulty || 'normal', guided: played === 0, lineage: false, table: 1, extras: [] };
     const lineSlot = h('div', { class: 'setup-row' });
+    const hotHint = h('div', { class: 'small it', style: { textAlign: 'center' } });
     const detail = h('div', { class: 'house-detail' });
     const grid = h('div', { class: 'house-grid' });
     const renderDetail = () => {
@@ -70,10 +73,18 @@ export class App {
         h('div', { class: 'small' }, H.blurb), h('div', { class: 'small muted' }, `Wins by: ${H.winsBy}. Weak at: ${H.weakAt}.`));
     };
     for (const name of HOUSE_ORDER) {
-      const b = h('button', { class: `house-pick${name === pick.house ? ' sel' : ''}`, onclick: () => { pick.house = name; this.audio.start(); this.audio.play('click'); for (const x of grid.children) x.classList.toggle('sel', x.dataset.h === name); renderDetail(); }, 'data-h': name },
+      const b = h('button', { class: `house-pick${name === pick.house ? ' sel' : ''}`, onclick: () => {
+        this.audio.start(); this.audio.play('click');
+        if (pick.table > 1 && name !== pick.house) {   // pass-and-play: tap the other Houses played at this device
+          if (pick.extras.includes(name)) pick.extras = pick.extras.filter((x) => x !== name);
+          else if (pick.extras.length < pick.table - 1) pick.extras.push(name);
+        } else { pick.house = name; pick.extras = pick.extras.filter((x) => x !== name); }
+        paintGrid(); renderDetail();
+      }, 'data-h': name },
         h('img', { src: img.shield(name), alt: '' }), h('div', { class: 'nm' }, dn(name)), h('div', { class: 'tt' }, HOUSES[name].title));
       grid.append(b);
     }
+    const paintGrid = () => { for (const x of grid.children) { x.classList.toggle('sel', x.dataset.h === pick.house); const k = pick.extras.indexOf(x.dataset.h); x.classList.toggle('ally', k >= 0); x.dataset.player = k >= 0 ? `Player ${k + 2}` : ''; } };
     renderDetail();
     const seg = (label, key, vals) => h('div', { class: 'setup-row' }, h('span', { class: 'it' }, label),
       h('div', { class: 'seg' }, vals.map(([v, t]) => h('button', { class: pick[key] === v ? 'on' : '', onclick: (e) => { pick[key] = v; for (const x of e.target.parentNode.children) x.classList.toggle('on', x === e.target); this.audio.play('click'); } }, t))));
@@ -84,6 +95,12 @@ export class App {
       h('div', { class: 'it' }, 'Choose your House'),
       grid, detail,
       seg('Houses at the table', 'players', [[2, 'Two'], [3, 'Three'], [4, 'Four']]),
+      h('div', { class: 'setup-row' }, h('span', { class: 'it' }, 'People at this device'), h('div', { class: 'seg' }, [1, 2, 3, 4].map((n) => h('button', { class: pick.table === n ? 'on' : '', onclick: (e) => {
+        pick.table = Math.min(n, pick.players); pick.extras = pick.extras.slice(0, pick.table - 1); if (pick.table > 1) pick.guided = false;
+        for (const x of e.target.parentNode.children) x.classList.toggle('on', +x.textContent === pick.table || (x.textContent === 'Just me' && pick.table === 1));
+        paintGrid(); hotHint.textContent = pick.table > 1 ? `Tap ${pick.table - 1} more House${pick.table > 2 ? 's' : ''} for the other player${pick.table > 2 ? 's' : ''}. You pass the device between turns.` : '';
+        this.audio.play('click'); } }, n === 1 ? 'Just me' : String(n))))),
+      hotHint,
       seg('Rival Houses', 'rivals', [['random', 'Drawn by lot'], ['strong', 'Strongest Houses']]),
       seg('Rules', 'rules', [['expanded', 'Expanded: Pacts, Toil, walls'], ['original', 'Original rules']]),
       seg('Rivals play', 'difficulty', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard (sharper, richer start)']]),
@@ -91,6 +108,7 @@ export class App {
       lineSlot,
       h('div', { class: 'setup-row' },
         h('button', { class: 'btn primary', onclick: () => { this.audio.start(); this.settings.rules = pick.rules; this.settings.difficulty = pick.difficulty; this.saveSettings(); this.newGame(pick); } }, 'Begin the first Season'),
+        h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showScenarios(); } }, 'Scenarios'),
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRecords(); } }, 'Records'),
         saved ? h('button', { class: 'btn blue', onclick: () => { this.audio.start(); this.load(); } }, 'Continue saved game') : null,
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRules(); } }, 'How to play')),
@@ -98,21 +116,24 @@ export class App {
     this.ui.append(h('div', { id: 'title' }, card));
     this.world.resetView(); this.world.camGoal.yaw = 0.35; this.world.camGoal.dist = 70;
   }
-  newGame({ house, players, rivals, rules = this.settings.rules || 'expanded', difficulty = this.settings.difficulty || 'normal', guided = false, lineage = false }) {
-    const pool = HOUSE_ORDER.filter((x) => x !== house);
-    const strong = ['Ash', 'Maelor', 'Verrin', 'Wren', 'Caddoc', 'Raven', 'Sable', 'Thorne'].filter((x) => x !== house);
+  newGame({ house, players, rivals, rules = this.settings.rules || 'expanded', difficulty = this.settings.difficulty || 'normal', guided = false, lineage = false, extras = [] }) {
+    extras = extras.filter((x) => x !== house).slice(0, players - 1);
+    const pool = HOUSE_ORDER.filter((x) => x !== house && !extras.includes(x));
+    const strong = ['Ash', 'Maelor', 'Verrin', 'Wren', 'Caddoc', 'Raven', 'Sable', 'Thorne'].filter((x) => x !== house && !extras.includes(x));
+    const nAI = players - 1 - extras.length;
     let foes;
-    if (rivals === 'strong') foes = strong.slice(0, players - 1);
-    else foes = pool.map((x) => [x, Math.random()]).sort((a, b) => a[1] - b[1]).map((x) => x[0]).slice(0, players - 1);
+    if (rivals === 'strong') foes = strong.slice(0, nAI);
+    else foes = pool.map((x) => [x, Math.random()]).sort((a, b) => a[1] - b[1]).map((x) => x[0]).slice(0, nAI);
     const seed = `hm-${Date.now().toString(36)}`;
     let lords; try { lords = lordsFor(house, loadRecords(), seed, !!lineage); } catch { lords = undefined; }
-    const state = applyDifficulty(E.newGame({ houses: [house, ...foes], humans: [house], seed, rules, lords }), difficulty);
-    state.guided = !!guided;
-    this.lastSetup = { house, players, rivals, rules, difficulty, lineage };
+    const state = applyDifficulty(E.newGame({ houses: [house, ...extras, ...foes], humans: [house, ...extras], seed, rules, lords }), difficulty);
+    state.guided = !!guided && !extras.length; state.hotseat = extras.length > 0;
+    this.lastSetup = { house, players, rivals, rules, difficulty, lineage, extras };
     this.start(state);
   }
   start(state) {
     this.state = state; this.me = state.houses.findIndex((x) => x.human); this.mode = null; this.selected = null; this.undo = null;
+    if (state.hotseat && state.phase === 'actions' && state.houses[state.turn].human) this.me = state.turn;
     this.tutorial = new Tutorial(this, !!state.guided && state.season === 1);
     this.world.pieces.houses = state.houses; this.world.setSeason(state.season, true); this.audio.setSeason(state.season);
     this.lastFx = 0;
@@ -214,6 +235,7 @@ export class App {
         h('li', {}, h('span', {}, 'Wins by'), h('span', { class: 'it' }, H.winsBy))),
       h('div', { class: 'heir' }, h('img', { src: img.heir(me.name, me.heir.status), alt: 'Your Heir' }),
         h('div', {}, h('div', {}, h('b', {}, `Your Heir, ${heirName(this.state, this.state.houses[this.me])}: `), this.heirText(me, v)), h('div', { class: 'it muted' }, me.heir.status === '?' ? 'Four in five are Impostors. A Vigil, a Seal or a succession will show the truth.' : me.heir.status === 'G' && !me.heir.revealed ? 'Reveal it (2 Favor) to score 4 at the end.' : me.heir.status === 'I' ? 'Should your Dynasty holder die, the Dynasty is lost.' : 'It will score 4 Renown at the end.'))),
+      this.state.scenario ? (() => { const sc = scenarioById[this.state.scenario]; const r = sc.objective.check(this.state, this.me); return h('div', { class: `objective small${r.done ? ' done' : r.failed ? ' failed' : ''}` }, h('b', {}, `${sc.title}: `), sc.objective.text, h('div', { class: 'it' }, r.progress)); })() : null,
       h('div', { class: 'rumour small it' }, h('b', {}, 'At the inn: '), rumour(v, this.me)),
       h('div', { class: 'hands' },
         h('button', { class: 'btn', onclick: () => this.showHand('rite') }, `Rites ${me.rites.length}/3`),
@@ -398,10 +420,11 @@ export class App {
       while (this.state && this.state === game && this.state.phase !== 'over') {
         const s = this.state;
         if (s.pending) {
-          if (s.houses[s.pending.h].human) { this.refresh(); if (s.pending.type === 'pact') this.showPact(); else this.showAccords(); break; }
+          if (s.houses[s.pending.h].human) { if (s.pending.h !== this.me) await this.handOver(s.pending.h); this.refresh(); if (s.pending.type === 'pact') this.showPact(); else this.showAccords(); break; }
           E.decide(s, { partners: suggestAccords(s, s.pending.h) }); try { await this.present(); } catch (err) { console.error('presentation failed', err); } continue;
         }
         const cur = s.houses[s.turn];
+        if (cur.human && cur.i !== this.me) { this.busy = false; await this.handOver(cur.i); }
         if (cur.human) { this.busy = false; this.refresh(); this.coach(); break; }
         this.busy = true; this.refresh();
         await sleep(380 * this.speedK());
@@ -411,7 +434,8 @@ export class App {
       }
       if (this.state?.phase === 'over') {
         this.busy = false; this.refresh(); this.save(true);
-        try { const { newAchievements } = recordGame(this.state, this.me); newAchievements.forEach((a) => this.ui.append(unlockToast(a))); } catch (err) { console.error('records', err); }
+        if (!this.state.hotseat) { try { const { newAchievements } = recordGame(this.state, this.me); newAchievements.forEach((a) => this.ui.append(unlockToast(a))); } catch (err) { console.error('records', err); } }
+        this.scoreScenario();
         await sleep(600); this.showResults();
       }
     } finally { this.looping = false; }
@@ -622,6 +646,45 @@ export class App {
     if (!rec) { this.toast('Records are not available in this browser.'); return; }
     this.modal([renderRecordsSheet(rec, { onClose: () => this.closeModal(), onReset: () => this.confirm('Erase the annals?', 'All records and achievements will be lost.', () => { resetRecords(); this.toast('The annals are blank.'); }) })], { cls: 'meta-sheet' });
   }
+  // Pass-and-play: cover the board until the next player has the device.
+  handOver(i) {
+    return new Promise((resolve) => {
+      this.undo = null; this.closePlot(); this.mode = null;
+      const x = this.state.houses[i];
+      const el = h('div', { id: 'handover', class: 'lapis' },
+        h('div', { class: 'ho-card vellum gilt' }, h('img', { src: img.shield(x.name, 192), alt: '' }),
+          h('h2', {}, `Pass the device to ${dn(x.name)}`), h('p', { class: 'it' }, `${lordName(x)} of ${LORE[x.name].seat}. Nobody else should look.`),
+          h('button', { class: 'btn primary', onclick: () => { el.remove(); this.me = i; this.world.sync(this.view, false); this.refresh(); this.audio.play('click'); resolve(); } }, `I am ${dn(x.name)}`)));
+      this.ui.append(el);
+    });
+  }
+  showScenarios() {
+    let done = {}; try { done = JSON.parse(store.getItem(SCEN_KEY) || '{}'); } catch { done = {}; }
+    this.modal([h('h2', {}, 'Scenarios'), h('p', { class: 'lede' }, 'Set openings with a goal of their own. Winning is still winning; the goal is a second test.'),
+      h('div', { class: 'pick-list' }, SCENARIOS.map((sc) => h('div', { class: 'scen' },
+        h('div', { class: 'scen-head' }, h('img', { src: img.shield(sc.house), alt: '', class: 'icon lg' }), h('b', {}, sc.title), done[sc.id] ? h('span', { class: 'tag g' }, 'Achieved') : null,
+          h('span', { class: 'tag' }, `${sc.rivals.length + 1} Houses · ${sc.difficulty}`)),
+        h('p', { class: 'small it' }, sc.blurb), h('p', { class: 'small' }, h('b', {}, 'Goal: '), sc.objective.text),
+        h('button', { class: 'btn primary small-btn', onclick: () => { this.closeModal(); this.newScenario(sc.id); } }, `Play as ${dn(sc.house)}`)))),
+      h('div', { class: 'row-btns' }, h('button', { class: 'btn', onclick: () => this.closeModal() }, 'Close'))]);
+  }
+  newScenario(id) {
+    const sc = scenarioById[id];
+    const seed = `hm-${Date.now().toString(36)}`;
+    const state = applyDifficulty(E.newGame({ houses: [sc.house, ...sc.rivals], humans: [sc.house], seed, rules: sc.rules }), sc.difficulty);
+    const me = state.houses.findIndex((x) => x.human);
+    sc.setup(state, me);
+    state.scenario = sc.id;
+    this.lastSetup = null;
+    this.start(state);
+    this.toast(`${sc.title}. Goal: ${sc.objective.text}`);
+  }
+  scoreScenario() {
+    const s = this.state; if (!s?.scenario) return;
+    const r = scenarioById[s.scenario].objective.check(s, this.me);
+    if (!r.done) return;
+    try { const d = JSON.parse(store.getItem(SCEN_KEY) || '{}'); d[s.scenario] = d[s.scenario] || new Date().toISOString(); store.setItem(SCEN_KEY, JSON.stringify(d)); } catch { /* memory only */ }
+  }
   showTrade(options) {
     const me = this.state.houses[this.me]; const rate = E.tradeRate(me);
     let give = options[0].give, get = options.find((o) => o.give === give).get;
@@ -794,7 +857,8 @@ export class App {
     });
     const tb = s.final.tieBreak && s.final.tieBreak !== 'shared' ? `Renown was tied; broken by ${s.final.tieBreak}.` : s.final.tieBreak === 'shared' ? 'A perfect tie: the victory is shared.' : '';
     this.modal([h('div', { style: { textAlign: 'center' } }, h('img', { src: img.shield(s.houses[s.winner[0]].name, 192), alt: '', style: { width: '110px' } })),
-      h('h2', {}, won ? 'Hollowmere is yours' : `${s.winner.map((i) => dn(s.houses[i].name)).join(' and ')} take${s.winner.length > 1 ? '' : 's'} Hollowmere`),
+      this.state.scenario ? (() => { const sc = scenarioById[this.state.scenario]; const r = sc.objective.check(this.state, this.me); return h('p', { class: `lede objective${r.done ? ' done' : ' failed'}` }, `${sc.title}: ${r.done ? 'objective achieved' : 'objective failed'}. ${r.progress}.`); })() : null,
+      h('h2', {}, won && !s.hotseat ? 'Hollowmere is yours' : `${s.winner.map((i) => dn(s.houses[i].name)).join(' and ')} take${s.winner.length > 1 ? '' : 's'} Hollowmere`),
       h('p', { class: 'lede' }, epilogue(s, s.winner), tb ? ` ${tb}` : ''),
       h('table', { class: 'score-table' }, h('tr', {}, h('th', {}, ''), h('th', {}, 'House'), h('th', {}, 'Renown'), h('th', {}, 'From'), h('th', {}, 'Markers'), h('th', {}, 'Coffer')), rows),
       h('div', { class: 'rule' }),
