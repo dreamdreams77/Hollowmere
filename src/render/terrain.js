@@ -12,13 +12,13 @@ const lerp = (a, b, t) => a + (b - a) * t;
 function biomeHeight(res, x, z, u, v) {
   const n = fbm(x * 0.22, z * 0.22);
   switch (res) {
-    case 'G': return 0.35 + n * 0.9;
-    case 'T': return 0.55 + fbm(x * 0.3 + 4, z * 0.3) * 1.5;
-    case 'S': { const r = Math.abs(fbm(x * 0.32, z * 0.32 + 9) - 0.5) * 2; return 0.8 + (1 - r) * 1.5 + n * 0.4; }
-    case 'I': { const c = fbm(x * 0.28 + 2, z * 0.28 - 3); return 1.0 + c * c * 3.4 + Math.max(0, 1.6 - Math.hypot(u + 1, v + 3) * 0.45); }
+    case 'G': return 0.4 + n * 1.2;
+    case 'T': return 0.7 + fbm(x * 0.3 + 4, z * 0.3) * 2.4;
+    case 'S': { const r = Math.abs(fbm(x * 0.32, z * 0.32 + 9) - 0.5) * 2; return 1.0 + (1 - r) * 2.6 + n * 0.6; }
+    case 'I': { const c = fbm(x * 0.28 + 2, z * 0.28 - 3); return 1.2 + c * c * 5.2 + Math.max(0, 2.6 - Math.hypot(u + 1, v + 3) * 0.6); }
     case 'R': return -0.05 + (fbm(x * 0.5, z * 0.5) - 0.45) * 0.55;
-    case 'C': return 0.3 + n * 0.5;
-    case 'L': return 0.45 + 1.7 * Math.exp(-((u) ** 2 + (v + 2.4) ** 2) / 7) + n * 0.35;
+    case 'C': return 0.35 + n * 0.7;
+    case 'L': return 0.5 + 2.8 * Math.exp(-((u) ** 2 + (v + 2.4) ** 2) / 7) + n * 0.5;
   }
   return 0.3;
 }
@@ -74,7 +74,7 @@ export function heightAt(x, z) {
   if (rd < 0.9 && h > WATER_Y) h = lerp(h, Math.max(h * 0.85, WATER_Y + 0.12), sst(0.9, 0.2, rd) * 0.5);
   // rivers carve
   const r = riverDist(x, z);
-  if (r < 1.9) h = lerp(h, -0.95, sst(1.9, 0.55, r));
+  if (r < 2.4) h = lerp(h, -1.25, sst(2.4, 0.6, r));
   return h;
 }
 const padCache = new Map();
@@ -92,7 +92,7 @@ const C = (hex) => new THREE.Color(hex);
 const PAL = {
   wheat: [C('#cfa443'), C('#b98e3a'), C('#d8c27a'), C('#7f9a44'), C('#8d6c40'), C('#a99448')],
   forest: C('#2f4f2a'), forest2: C('#253f22'), grass: C('#6f8c47'), grass2: C('#86994f'), meadow: C('#7d9a4c'),
-  rock: C('#938e86'), rockDark: C('#5f5f63'), heath: C('#6e6a4c'), rust: C('#8c5a3a'), marsh: C('#6f8f58'), mud: C('#6b5a3e'),
+  rock: C('#87827b'), rockDark: C('#5f5f63'), heath: C('#6e6a4c'), rust: C('#8c5a3a'), marsh: C('#6f8f58'), mud: C('#6b5a3e'),
   cobble: C('#a99c84'), lore: C('#6f7a52'), road: C('#9c8458'), sand: C('#dfcf9b'), bank: C('#8a7a52'),
   snow: C('#f1f3f7'), cliff: C('#7d7b78'), seabed: C('#9c8a60'),
 };
@@ -203,6 +203,15 @@ export function paintPatch(mat, { sway = 0, snowCap = 1 } = {}) {
   return mat;
 }
 
+// Height minus the local average (separable box blur, radius r cells): negative in hollows.
+function cavity(H, w, d, r) {
+  const a = new Float32Array(H.length), b = new Float32Array(H.length);
+  for (let j = 0; j < d; j++) { let s = 0, n = 0; const row = j * w;
+    for (let i = -r; i < w; i++) { if (i + r < w) { s += H[row + i + r]; n++; } if (i - r - 1 >= 0) { s -= H[row + i - r - 1]; n--; } if (i >= 0) a[row + i] = s / n; } }
+  for (let i = 0; i < w; i++) { let s = 0, n = 0;
+    for (let j = -r; j < d; j++) { if (j + r < d) { s += a[(j + r) * w + i]; n++; } if (j - r - 1 >= 0) { s -= a[(j - r - 1) * w + i]; n--; } if (j >= 0) b[j * w + i] = H[j * w + i] - s / n; } }
+  return b;
+}
 export function buildTerrain(quality) {
   const step = quality === 'low' ? 0.42 : quality === 'medium' ? 0.38 : 0.33;
   const W = WORLD.x1 - WORLD.x0, D = WORLD.z1 - WORLD.z0;
@@ -216,14 +225,17 @@ export function buildTerrain(quality) {
   geo.computeVertexNormals();
   const col = new Float32Array(pos.count * 3);
   const nrm = geo.attributes.normal;
+  const cav = cavity(H, nx + 1, nz + 1, Math.round(1.6 / step));
   for (let i = 0; i < pos.count; i++) {
     const slope = 1 - nrm.getY(i);
     groundColour(pos.getX(i), pos.getZ(i), H[i], slope * 3, tmp);
+    // baked occlusion: hollows and valley floors darken, crests catch a little light
+    const c = cav[i]; tmp.multiplyScalar(c < 0 ? Math.max(0.62, 1 + c * 0.28) : Math.min(1.12, 1 + c * 0.1));
     col[i * 3] = tmp.r; col[i * 3 + 1] = tmp.g; col[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const mat = paintPatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 }));
-  const mesh = new THREE.Mesh(geo, mat); mesh.receiveShadow = true; mesh.castShadow = quality === 'high';
+  const mesh = new THREE.Mesh(geo, mat); mesh.receiveShadow = true; mesh.castShadow = true;   // hills shade the valleys on every device
   mesh.name = 'terrain';
   return { mesh, nx, nz, step };
 }

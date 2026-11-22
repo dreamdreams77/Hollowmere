@@ -15,10 +15,10 @@ import { goldLeaf } from '../content/art.js';
 
 const SEASON_LOOK = [
   // spring, summer, autumn, winter
-  { name: 'Spring', sun: '#fff1d6', sunI: 3.0, az: 0.7, el: 0.85, hemS: '#cfe0f2', hemG: '#6d7d4a', hemI: 0.8, snow: 0, autumn: 0, spring: 1, cloud: 0.55, wind: 1.0, weather: 'clear', expo: 0.95, warm: 0.15, sat: 1.08 },
-  { name: 'Summer', sun: '#ffe7b8', sunI: 3.3, az: 0.4, el: 1.0, hemS: '#d6e6f6', hemG: '#7a7444', hemI: 0.78, snow: 0, autumn: 0, spring: 0, cloud: 0.35, wind: 0.7, weather: 'clear', expo: 0.95, warm: 0.3, sat: 1.1 },
-  { name: 'Autumn', sun: '#ffc98a', sunI: 2.9, az: 1.1, el: 0.62, hemS: '#e2d6c4', hemG: '#7a5a3a', hemI: 0.75, snow: 0, autumn: 1, spring: 0, cloud: 0.7, wind: 1.4, weather: 'leaves', expo: 0.94, warm: 0.55, sat: 1.3 },
-  { name: 'Winter', sun: '#e6eeff', sunI: 2.6, az: 0.9, el: 0.5, hemS: '#cfdcf2', hemG: '#8a8a9a', hemI: 0.95, snow: 0.62, autumn: 0, spring: 0, cloud: 0.8, wind: 1.2, weather: 'snow', expo: 1.05, warm: -0.1, sat: 0.98 },
+  { name: 'Spring', sun: '#fff1d6', sunI: 3.5, az: 2.05, el: 0.62, hemS: '#cfe0f2', hemG: '#6d7d4a', hemI: 0.55, snow: 0, autumn: 0, spring: 1, cloud: 0.55, wind: 1.0, weather: 'clear', expo: 0.95, warm: 0.15, sat: 1.08 },
+  { name: 'Summer', sun: '#ffe7b8', sunI: 3.7, az: 1.85, el: 0.74, hemS: '#d6e6f6', hemG: '#7a7444', hemI: 0.55, snow: 0, autumn: 0, spring: 0, cloud: 0.35, wind: 0.7, weather: 'clear', expo: 0.95, warm: 0.3, sat: 1.1 },
+  { name: 'Autumn', sun: '#ffc98a', sunI: 3.3, az: 2.25, el: 0.5, hemS: '#e2d6c4', hemG: '#7a5a3a', hemI: 0.52, snow: 0, autumn: 1, spring: 0, cloud: 0.7, wind: 1.4, weather: 'leaves', expo: 0.94, warm: 0.55, sat: 1.3 },
+  { name: 'Winter', sun: '#e6eeff', sunI: 2.9, az: 2.1, el: 0.42, hemS: '#cfdcf2', hemG: '#8a8a9a', hemI: 0.7, snow: 0.62, autumn: 0, spring: 0, cloud: 0.8, wind: 1.2, weather: 'snow', expo: 1.05, warm: -0.1, sat: 0.98 },
 ];
 export const seasonLook = (s) => SEASON_LOOK[(s - 1) % 4];
 
@@ -176,7 +176,7 @@ export class World {
   fit() {
     const W = this.W || window.innerWidth, H = this.H || window.innerHeight;
     const s = this.safe || { x: 0, y: 0, w: W, h: H };
-    this.pitch0 = this.portrait ? 1.13 : 0.98;
+    this.pitch0 = this.portrait ? 1.06 : 0.9;
     const cam = this.camera.clone(); cam.aspect = W / H; cam.clearViewOffset(); cam.updateProjectionMatrix();
     const corners = []; for (const x of [BOARD.x0 - 1, BOARD.x1 + 1]) for (const z of [BOARD.z0 - 1, BOARD.z1 + 1]) for (const y of [0, 2.5]) corners.push(new THREE.Vector3(x, y, z));
     const target = new THREE.Vector3(0, 0, 1.5);
@@ -266,9 +266,9 @@ export class World {
     this.sunBase.lerp(this._c.set(L.sun), k); this.hemS.lerp(this._c.set(L.hemS), k); this.hemG.lerp(this._c.set(L.hemG), k);
     this.sun.color.copy(this.sunBase).lerp(this._c.set(winter ? '#ffc6a2' : '#ff9c5a'), D * 0.42); this.sun.intensity = L.sunI * (1 - 0.2 * D);
     const el = L.el - D * 0.2 * L.el, az = L.az + D * 0.38;
-    this.sun.position.set(Math.sin(az) * 90 * Math.cos(el), Math.sin(el) * 110, Math.cos(az) * 70 * Math.cos(el) + 20);
+    this.sun.position.set(Math.sin(az) * 100 * Math.cos(el), Math.sin(el) * 100, Math.cos(az) * 100 * Math.cos(el));
     this.hemi.color.copy(this.hemS).lerp(this._c.set(winter ? '#c9cfe8' : '#e9c9b2'), D * 0.35); this.hemi.groundColor.copy(this.hemG); this.hemi.intensity = L.hemI * (1 - 0.14 * D);
-    const gr = this.post.grade.uniforms; gr.warm.value = L.warm + D * (winter ? 0.06 : 0.15); gr.sat.value = L.sat; gr.expo.value = L.expo * (1 - 0.04 * D); gr.contrast.value = 0.32; gr.amt.value = 0.5;
+    const gr = this.post.grade.uniforms; gr.warm.value = L.warm + D * (winter ? 0.06 : 0.15); gr.sat.value = L.sat; gr.expo.value = L.expo * (1 - 0.04 * D); gr.contrast.value = 0.38; gr.amt.value = 0.5;
     glowMat.emissiveIntensity = 1.6 + 2.4 * D;
     // camera
     const c = this.cam, gl = this.camGoal, e = 1 - Math.pow(0.002, dt);
