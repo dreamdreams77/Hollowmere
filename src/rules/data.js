@@ -187,7 +187,35 @@ export const EVENTS = [
   { id: 'lean_winter', name: 'Lean Winter', text: 'Every House with fewer than three Grain loses one Coin.' },
   { id: 'blood_moon', name: 'Blood Moon', text: 'No effect.' },
 ];
-export const eventById = Object.fromEntries(EVENTS.map((e) => [e.id, e]));
+// Expanded rules X7 (not in the source design): eight Event cards that put a choice to one House.
+// "falls" says which House must choose; ties are broken at random.
+export const DILEMMAS = [
+  { id: 'refugees', name: 'Refugees at the Ford', falls: 'the House with the most markers in Reach II', text: 'Families from the drowned villages wait at the ford.',
+    a: { label: 'Shelter them', text: 'Pay 2 Grain. Gain 1 Favor; every rival thinks better of you.' },
+    b: { label: 'Turn them away', text: 'Keep your Grain. Every rival thinks less of you.' } },
+  { id: 'bishops_purse', name: "The Bishop's Purse", falls: 'the House with the most Favor', text: 'A bishop offers silver for your voice at the next Council.',
+    a: { label: 'Take the purse', text: 'Gain 3 Coin; lose 1 Favor.' },
+    b: { label: 'Refuse it in the square', text: 'Gain 1 Renown.' } },
+  { id: 'captain', name: 'A Captain Without a Banner', falls: 'the House with the fewest Legions', text: 'A sellsword and his company want a lord.',
+    a: { label: 'Hire his company', text: 'Pay 2 Coin. Gain 2 Legions on Plots you hold.' },
+    b: { label: 'Let him ride on', text: 'He joins the House with the most Legions (one Legion).' } },
+  { id: 'granary_rot', name: 'Rot in the Granaries', falls: 'the House with the most Grain', text: 'Black mould is found in the lowest sacks.',
+    a: { label: 'Burn the stores', text: 'Lose half your Grain (rounded up).' },
+    b: { label: 'Say nothing', text: 'Roll a die: on 1 to 3 lose all your Grain and 1 Favor; on 4 to 6 nothing happens.' } },
+  { id: 'drowned_abbey', name: 'The Drowned Abbey', falls: 'the House with the least Lore', text: 'The flood has opened the undercroft of an old abbey.',
+    a: { label: 'Dive for the books', text: 'Pay 1 Timber. Gain 2 Lore.' },
+    b: { label: 'Sell the salvage rights', text: 'Gain 2 Coin.' } },
+  { id: 'fair_challenge', name: 'A Challenge at the Fair', falls: 'the House with the most Renown', text: 'A champion calls out the proudest House before the whole fair.',
+    a: { label: 'Accept', text: 'Roll a die and add your Legions on your strongest Plot. 5 or more: gain 2 Renown. Less: lose 1 Renown.' },
+    b: { label: 'Decline with grace', text: 'Lose 1 Favor.' } },
+  { id: 'reedmen', name: "The Reedmen's Charter", falls: 'the House with the most markers on Reed Plots', text: 'The fen-folk ask for a charter of their own.',
+    a: { label: 'Grant the charter', text: 'Pay 1 Coin. Gain 1 Favor and 1 Reed.' },
+    b: { label: 'Tax the fens', text: 'Gain 2 Coin; one of your Legions deserts.' } },
+  { id: 'crown_envoy', name: 'Envoy of the Crown', falls: 'the House with the least Renown', text: 'The distant Crown remembers Hollowmere, and wants a friend there.',
+    a: { label: 'Swear fealty', text: 'Gain 2 Favor; pay 1 Iron in tribute if you have it.' },
+    b: { label: 'Ask for arms', text: 'Gain 1 Legion and 1 Iron; lose 1 Favor.' } },
+];
+export const eventById = Object.fromEntries([...EVENTS, ...DILEMMAS].map((e) => [e.id, e]));
 
 // Investigation cards (rule v5.0, D9). docs/INVESTIGATION.md was not supplied; the deck
 // mixes below are this build's reconstruction (see docs/RULES.md, item R7).

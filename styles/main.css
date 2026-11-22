@@ -195,6 +195,9 @@ h1, h2, h3 { font-weight: 400; margin: 0; letter-spacing: .02em; }
 .scen { border-bottom: 1px dotted var(--ink); padding: 8px 0; } .scen-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .scen p { margin: 4px 0; }
 .objective { margin-top: 8px; padding: 6px 8px; border-left: 3px solid var(--ultra); background: rgba(255,255,255,.25); }
 .objective.done { border-color: var(--verdigris); } .objective.failed { border-color: var(--vermilion); }
+/* Event choices */
+.btn.choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; min-height: 56px; }
+.btn.choice.off { opacity: .55; }
 /* menu */
 #menu .sheet { width: min(460px, 94vw); } #menu .pick-list .btn { justify-content: center; }
 

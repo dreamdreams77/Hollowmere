@@ -153,6 +153,15 @@ const EVENT_LINES = {
     'A red moon over the Delta. Everyone expects something. Nothing comes.',
     'Priests preach doom all night. By morning the doom has not turned up.',
   ],
+  // Expanded rules X7: Events that put a choice to one House
+  refugees: ['Carts, cradles and a goat on a rope wait at the ford. Everyone is watching to see who opens a gate.', 'The drowned villages walk upriver with what they could carry.'],
+  bishops_purse: ['The bishop says the silver is for the poor. He says it very quietly.', 'A purse is left on a council chair, with a note that is not quite a request.'],
+  captain: ['He has forty spears, one good eye and no master. He is not fussy about which.', 'A captain rides in under a bare pole and asks who pays best.'],
+  granary_rot: ['The lowest sacks smell of wet earth. The steward has not slept.', 'Black bloom in the granary. Burn it, or pray it stays small.'],
+  drowned_abbey: ['The flood has torn open the abbey undercroft. Something gilt shines under the water.', 'Divers say there are books down there that have not been read in two hundred years.'],
+  fair_challenge: ['A champion in borrowed armour names the proudest House before the whole fair.', 'The challenge is shouted twice, so nobody can pretend they missed it.'],
+  reedmen: ['The fen-folk come in punts, hats in hand and knives in belts, to ask for a charter.', 'The Reedmen want their own court. They have brought eels as a gift.'],
+  crown_envoy: ['A rider in the Crown\'s colours arrives, three weeks late and very sure of himself.', 'The Crown has remembered Hollowmere. That is rarely good news.'],
 };
 
 // What people see and say when an Event is drawn (the rules text is shown separately).

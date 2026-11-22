@@ -2,7 +2,7 @@
 // The engine is authoritative: the UI and the AI only ever call legalActions / checkAction /
 // applyAction / advance / decide. Random outcomes come from the seeded generator in state.rng.
 import {
-  CONFIG, RES, RES_NAME, PLOTS, ADJ, REACHES, HOUSES, RITES, riteById, EVENTS, eventById,
+  CONFIG, RES, RES_NAME, PLOTS, ADJ, REACHES, HOUSES, RITES, riteById, EVENTS, DILEMMAS, eventById,
   INVESTIGATION, INVESTIGATION_DECK, SEATS_FOR, pips, plotById,
 } from './data.js';
 import * as R from './rng.js';
@@ -42,7 +42,7 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
       rites: [], invHand: [], invDeck: deck, invDiscard: [],
       cabalTokens: 0, cabalExposed: false,
       flags: {}, ritesSeason: 0, ritesSinceReset: 0, ritesTotal: 0,
-      skirmishReaches: [], accords: [], married: false,
+      skirmishReaches: [], accords: [], married: false, betrothed: null,
       lord: null, regard: {}, pacts: [], oaths: 0,
       stats: { builds: 0, raids: 0, skirmishWon: 0, skirmishLost: 0, captures: 0, lost: 0, produced: 0, passes: 0, seals: 0, exposed: 0 },
     });
@@ -91,9 +91,11 @@ function breakOath(state, h, victim) {
   if (!pactWith(state, h, victim)) return;
   endPact(state, h, victim);
   const house = state.houses[h]; house.oaths++;
-  gainRenown(state, h, -1, 'Oathbreaking'); house.favor = Math.max(0, house.favor - 2);
-  for (const o of state.houses) if (o.i !== h) shiftRegard(state, o.i, h, o.i === victim ? -4 : -2);
-  log(state, h, `${dn(house.name)} breaks its Pact with ${dn(state.houses[victim].name)}. The river remembers oathbreakers.`, 'court');
+  const kin = house.betrothed === victim;   // X8: betraying the House your line married into costs twice as much
+  if (kin) { house.betrothed = null; state.houses[victim].betrothed = null; }
+  gainRenown(state, h, kin ? -2 : -1, 'Oathbreaking'); house.favor = Math.max(0, house.favor - (kin ? 3 : 2));
+  for (const o of state.houses) if (o.i !== h) shiftRegard(state, o.i, h, (o.i === victim ? -4 : -2) * (kin ? 1.5 : 1));
+  log(state, h, kin ? `${dn(house.name)} breaks faith with ${dn(state.houses[victim].name)}, the House its own line married into. No crime on the river is spoken of more.` : `${dn(house.name)} breaks its Pact with ${dn(state.houses[victim].name)}. The river remembers oathbreakers.`, 'court');
   fx(state, { t: 'oathbreak', h, victim });
 }
 // Would AI-ruled House j accept a Pact from h? Deterministic, so a proposer can foresee the answer.
@@ -118,6 +120,32 @@ function formPact(state, a, b, gift) {
   shiftRegard(state, a, b, 2); shiftRegard(state, b, a, 2);
   log(state, a, `${dn(state.houses[a].name)} and ${dn(state.houses[b].name)} swear a Pact until the end of Season ${until}${gift ? `, sealed with a gift of ${RES_NAME[gift]}` : ''}.`, 'court');
   fx(state, { t: 'pact', h: a, with: b });
+}
+
+// Betrothal (Expanded rules X8): a House with a Pact offers its Heir's hand. If accepted, the Pact
+// lasts the rest of the game, both Houses gain 1 Renown, and each learns the truth of the other's
+// Heir. The proposer pays a 2-Coin dowry to the other House (Rosenvael, the oldest blood, pays none).
+export const BETROTH_DOWRY = 2;
+export const BETROTH_LIFE = 99;
+export function betrothScore(state, j, h) {
+  const J = state.houses[j];
+  let s = pactScore(state, j, h, 'C') + 0.5;
+  if (J.heir.knownBy.includes(j) && J.heir.status === 'I' && !J.heir.revealed) s -= 2;   // an Impostor fears the in-laws
+  if (J.lord?.trait === 'honourable') s += 0.5;
+  return s;
+}
+export const betrothAccepts = (state, j, h) => betrothScore(state, j, h) >= 1.5;
+function formBetrothal(state, a, b) {
+  const A = state.houses[a], B = state.houses[b];
+  if (!HOUSES[A.name].vigil) { A.coffer.C -= BETROTH_DOWRY; B.coffer.C += BETROTH_DOWRY; }
+  A.betrothed = b; B.betrothed = a;
+  for (const [x, y] of [[A, b], [B, a]]) { const p = x.pacts.find((q) => q.with === y); if (p) p.until = BETROTH_LIFE; else x.pacts.push({ with: y, until: BETROTH_LIFE }); }
+  if (!A.heir.knownBy.includes(b)) A.heir.knownBy.push(b);
+  if (!B.heir.knownBy.includes(a)) B.heir.knownBy.push(a);
+  gainRenown(state, a, 1, 'Betrothal'); gainRenown(state, b, 1, 'Betrothal');
+  shiftRegard(state, a, b, 2); shiftRegard(state, b, a, 2);
+  log(state, a, `${heirName(state, A)} of ${dn(A.name)} is betrothed to ${heirName(state, B)} of ${dn(B.name)}. Their Pact now lasts the rest of the game, and each House knows the truth of the other's Heir.`, 'court');
+  fx(state, { t: 'betrothal', h: a, with: b });
 }
 
 // Bring a saved state from an older version up to date.
@@ -253,13 +281,13 @@ function takeRandom(state, from, to, n) {
 
 export const ACTION_TYPES = [
   'build', 'keep', 'muster', 'raid', 'recapture', 'trade', 'favor', 'investigate', 'play',
-  'seal', 'reveal', 'rite', 'dynasty', 'cabal', 'vigil', 'toil', 'fortify', 'envoy', 'pass',
+  'seal', 'reveal', 'rite', 'dynasty', 'cabal', 'vigil', 'toil', 'fortify', 'envoy', 'betroth', 'pass',
 ];
-export const EXPANDED_TYPES = ['toil', 'fortify', 'envoy'];
+export const EXPANDED_TYPES = ['toil', 'fortify', 'envoy', 'betroth'];
 export const ACTION_LABEL = {
   build: 'Build', keep: 'Keep', muster: 'Muster', raid: 'Raid', recapture: 'Recapture', trade: 'Trade',
   favor: 'Claim Favor', investigate: 'Investigate', play: 'Play Card', seal: 'Seal', reveal: 'Reveal Heir',
-  rite: 'Rite', dynasty: 'Dynasty', cabal: 'Cabal', vigil: 'Vigil', toil: 'Toil', fortify: 'Fortify', envoy: 'Envoy', pass: 'Pass',
+  rite: 'Rite', dynasty: 'Dynasty', cabal: 'Cabal', vigil: 'Vigil', toil: 'Toil', fortify: 'Fortify', envoy: 'Envoy', betroth: 'Betroth', pass: 'Pass',
 };
 
 // Why an action type cannot be taken right now, or null if at least one form of it can.
@@ -331,6 +359,12 @@ export function whyNot(state, h, type) {
       if ((house.flags.envoy || 0) >= (H.vigil ? 2 : 1)) return 'You have already sent your Envoys this Season.';
       if (!H.vigil && house.coffer.C < 1) return 'Needs 1 Coin.';
       return 'You already have a Pact with every rival.';
+    case 'betroth':
+      if (!expanded(state)) return 'Only in the Expanded rules.';
+      if (house.betrothed != null) return `Your line is already joined to ${hname(state, house.betrothed)}.`;
+      if (!house.pacts.length) return 'A Betrothal needs a Pact first: send an Envoy.';
+      if (!H.vigil && house.coffer.C < BETROTH_DOWRY) return `Needs ${BETROTH_DOWRY} Coin for the dowry.`;
+      return 'Every House you have a Pact with is already betrothed.';
     case 'pass': return null;
     default: return 'Unknown action.';
   }
@@ -436,6 +470,10 @@ export function optionsFor(state, h, type) {
         out.push({ type, target: x.i, gift: null });
         for (const r of RES) if (house.coffer[r] >= (r === 'C' && !envoyFree ? 2 : 1)) out.push({ type, target: x.i, gift: r });
       }
+      break;
+    case 'betroth':
+      if (!expanded(state) || house.betrothed != null || (!H.vigil && house.coffer.C < BETROTH_DOWRY)) break;
+      for (const p of house.pacts) if (state.houses[p.with].betrothed == null) out.push({ type, target: p.with });
       break;
     case 'pass': out.push({ type }); break;
   }
@@ -628,6 +666,18 @@ export function applyAction(state, action, opts = {}) {
       else {
         shiftRegard(state, h, tgt.i, -1);
         log(state, h, `${me}'s Envoy is turned away by ${dn(tgt.name)}.`, 'court'); fx(state, { t: 'refused', h, by: tgt.i });
+      }
+      break;
+    }
+    case 'betroth': {
+      const tgt = state.houses[action.target];
+      if (tgt.human) {
+        state.pending = { type: 'betroth', h: tgt.i, from: h };
+        log(state, h, `${me} offers the hand of its Heir to ${dn(tgt.name)}.`, 'court');
+      } else if (betrothAccepts(state, tgt.i, h)) formBetrothal(state, h, tgt.i);
+      else {
+        shiftRegard(state, h, tgt.i, -1);
+        log(state, h, `${dn(tgt.name)} declines ${me}'s offer of a marriage.`, 'court'); fx(state, { t: 'refused', h, by: tgt.i, what: 'betroth' });
       }
       break;
     }
@@ -834,6 +884,19 @@ export function decide(state, choice) {
     else { shiftRegard(state, p.from, p.h, -1); log(state, p.h, `${dn(state.houses[p.h].name)} refuses the Pact offered by ${dn(state.houses[p.from].name)}.`, 'court'); }
     return advance(state);
   }
+  if (p.type === 'betroth') {
+    state.pending = null;
+    const ok = choice.accept && pactWith(state, p.from, p.h) && state.houses[p.from].betrothed == null && state.houses[p.h].betrothed == null
+      && (HOUSES[state.houses[p.from].name].vigil || state.houses[p.from].coffer.C >= BETROTH_DOWRY);
+    if (ok) formBetrothal(state, p.from, p.h);
+    else { shiftRegard(state, p.from, p.h, -1); log(state, p.h, `${dn(state.houses[p.h].name)} declines the marriage offered by ${dn(state.houses[p.from].name)}.`, 'court'); }
+    return advance(state);
+  }
+  if (p.type === 'dilemma') {
+    state.pending = null;
+    resolveDilemma(state, p.h, p.id, choice.pick === 'a' ? 'a' : 'b');
+    return advance(state);
+  }
   if (p.type === 'accords') {
     const picks = [...new Set(choice.partners || [])].filter((x) => p.options.some((o) => o.house === x)).slice(0, p.max);
     state.pending = null;
@@ -843,8 +906,16 @@ export function decide(state, choice) {
 }
 
 function eventPhase(state) {
-  const ev = R.pick(state.rng, EVENTS);  // event_draw = 'random' (config.py)
+  const ev = R.pick(state.rng, expanded(state) ? [...EVENTS, ...DILEMMAS] : EVENTS);  // event_draw = 'random' (config.py); X7 adds the Dilemmas
   state.eventLog.push({ season: state.season, id: ev.id });
+  if (ev.a) {   // Expanded X7: a choice falls to one House
+    const h = dilemmaHouse(state, ev.id);
+    log(state, null, `Event: ${ev.name}. The choice falls to ${hname(state, h)}.`, 'event');
+    fx(state, { t: 'event', id: ev.id, h });
+    if (state.houses[h].human) { state.pending = { type: 'dilemma', h, id: ev.id, options: dilemmaOptions(state, h, ev.id) }; return; }
+    resolveDilemma(state, h, ev.id, dilemmaPick(state, h, ev.id));
+    return;
+  }
   let text = `Event: ${ev.name}. `;
   let after = null;
   const H = state.houses;
@@ -896,7 +967,94 @@ function eventPhase(state) {
   log(state, null, text, 'event');
   fx(state, { t: 'event', id: ev.id });
   if (after) after();
-  if (isFloodSeason(state.season)) state.phase = 'flood'; else nextSeason(state);
+  endEventPhase(state);
+}
+function endEventPhase(state) { if (isFloodSeason(state.season)) state.phase = 'flood'; else nextSeason(state); }
+
+// ---------------------------------------------------------------- Event choices (Expanded X7)
+// Which House a Dilemma falls to (see DILEMMAS[].falls); ties are broken at random.
+function dilemmaHouse(state, id) {
+  const H = state.houses;
+  const on = (h, f) => state.plots.filter((p) => f(plotById(p.id))).reduce((a, p) => a + (p.m[h] || 0), 0);
+  const val = {
+    refugees: (h) => on(h.i, (p) => p.reach === 2), bishops_purse: (h) => h.favor, captain: (h) => -totalLegions(state, h.i),
+    granary_rot: (h) => h.coffer.G, drowned_abbey: (h) => -h.coffer.L, fair_challenge: (h) => h.renown,
+    reedmen: (h) => on(h.i, (p) => p.res === 'R'), crown_envoy: (h) => -h.renown,
+  }[id];
+  const v = H.map(val); const best = Math.max(...v);
+  return R.pick(state.rng, H.filter((h, k) => v[k] === best)).i;
+}
+const legionRoom = (state, h) => heldPlots(state, h).filter((pid) => legionsOn(state, pid, h) < C.legionCapPerPlot);
+export function dilemmaOptions(state, h, id) {
+  const house = state.houses[h]; const D = eventById[id];
+  let ok = true, why = null;
+  if (id === 'refugees' && house.coffer.G < 2) { ok = false; why = 'Needs 2 Grain.'; }
+  if (id === 'captain') { if (!legionRoom(state, h).length) { ok = false; why = 'No Plot of yours has room for Legions.'; } else if (house.coffer.C < 2) { ok = false; why = 'Needs 2 Coin.'; } }
+  if (id === 'drowned_abbey') { if (HOUSES[house.name].noLore) { ok = false; why = `${dn(house.name)} keeps no Lore.`; } else if (house.coffer.T < 1) { ok = false; why = 'Needs 1 Timber.'; } }
+  if (id === 'reedmen' && house.coffer.C < 1) { ok = false; why = 'Needs 1 Coin.'; }
+  return [{ key: 'a', label: D.a.label, text: D.a.text, ok, why }, { key: 'b', label: D.b.label, text: D.b.text, ok: true, why: null }];
+}
+// How an AI lord answers a Dilemma: rough value of choice a over choice b, coloured by the lord's trait.
+export function dilemmaPick(state, h, id) {
+  const house = state.houses[h]; const tr = house.lord?.trait;
+  if (!dilemmaOptions(state, h, id)[0].ok) return 'b';
+  const rivals = state.houses.length - 1; const strongest = Math.max(0, ...heldPlots(state, h).map((pid) => legionsOn(state, pid, h)));
+  let d = 0;
+  switch (id) {
+    case 'refugees': d = 0.5 + 0.15 * rivals - 0.6 + (tr === 'honourable' || tr === 'pious' ? 0.6 : 0) - (tr === 'covetous' ? 0.6 : 0); break;
+    case 'bishops_purse': d = 0.25 - 1 + (tr === 'covetous' ? 1.1 : 0) + (tr === 'treacherous' ? 0.6 : 0) - (tr === 'pious' ? 0.5 : 0); break;
+    case 'captain': d = 0.9 + (tr === 'bold' ? 0.4 : 0) - (tr === 'covetous' ? 0.5 : 0); break;
+    case 'granary_rot': { const G = house.coffer.G; d = -0.25 * Math.ceil(G / 2) + 0.5 * (0.25 * G + 0.5) + (tr === 'cautious' ? 0.4 : 0) - (tr === 'bold' ? 0.6 : 0); break; }
+    case 'drowned_abbey': d = 0.05 + (HOUSES[house.name].riteRenown ? 0.5 : 0) + (tr === 'cunning' || tr === 'pious' ? 0.3 : 0); break;
+    case 'fair_challenge': { const p = Math.max(0, Math.min(1, (strongest + 2) / 6)); d = p * 2 - (1 - p) + 0.5 + (tr === 'bold' || tr === 'proud' ? 0.6 : 0) - (tr === 'cautious' ? 0.6 : 0); break; }
+    case 'reedmen': d = 0.55 - (totalLegions(state, h) ? -0.1 : 0.5) + (tr === 'covetous' ? -0.5 : 0); break;
+    case 'crown_envoy': d = 0.3 - (house.coffer.I ? 0.3 : 0) + (tr === 'bold' ? -0.6 : 0) + (tr === 'pious' ? 0.3 : 0); break;
+  }
+  return d >= 0 ? 'a' : 'b';
+}
+function resolveDilemma(state, h, id, key) {
+  const house = state.houses[h]; const me = dn(house.name); const D = eventById[id];
+  if (key === 'a' && !dilemmaOptions(state, h, id)[0].ok) key = 'b';
+  const rivals = state.houses.filter((x) => x.i !== h);
+  const raise = (who, n) => { let got = 0; for (let k = 0; k < n; k++) { const spot = legionRoom(state, who).sort((a, b) => legionsOn(state, a, who) - legionsOn(state, b, who) || a - b)[0]; if (!spot) break; addLegion(state, spot, who); fx(state, { t: 'muster', h: who, plot: spot }); got++; } return got; };
+  const loseFavor = (n) => { const was = house.favor; house.favor = Math.max(0, house.favor - n); return was - house.favor; };
+  let text = '';
+  switch (`${id}:${key}`) {
+    case 'refugees:a': house.coffer.G -= 2; house.favor++; rivals.forEach((x) => shiftRegard(state, x.i, h, 1)); text = `${me} shelters the refugees: 2 Grain given, 1 Favor gained, and the river speaks well of it.`; break;
+    case 'refugees:b': rivals.forEach((x) => shiftRegard(state, x.i, h, -1)); text = `${me} turns the refugees away. The other Houses take note.`; break;
+    case 'bishops_purse:a': house.coffer.C += 3; loseFavor(1); text = `${me} takes the bishop's purse: 3 Coin, and a little less Favor.`; break;
+    case 'bishops_purse:b': gainRenown(state, h, 1, 'Event'); text = `${me} refuses the bishop's silver in the square and gains 1 Renown.`; break;
+    case 'captain:a': { house.coffer.C -= 2; const n = raise(h, 2); text = `${me} hires the captain's company: ${n} Legion${n === 1 ? '' : 's'} for 2 Coin.`; break; }
+    case 'captain:b': {
+      const top = Math.max(...rivals.map((x) => totalLegions(state, x.i))); const pool = rivals.filter((x) => totalLegions(state, x.i) === top && legionRoom(state, x.i).length);
+      const to = pool.length ? R.pick(state.rng, pool) : null;
+      text = to && raise(to.i, 1) ? `${me} lets the captain ride on. He sells his sword to ${dn(to.name)}.` : `${me} lets the captain ride on, and nobody hires him.`; break;
+    }
+    case 'granary_rot:a': { const n = Math.ceil(house.coffer.G / 2); house.coffer.G -= n; text = `${me} burns the stores and loses ${n} Grain.`; break; }
+    case 'granary_rot:b': { const d = R.d6(state.rng); if (d <= 3) { const n = house.coffer.G; house.coffer.G = 0; loseFavor(1); text = `${me} says nothing. The rot spreads (${d}): ${n} Grain lost, and the Favor of the market with it.`; } else text = `${me} says nothing, and the rot goes no further (${d}).`; break; }
+    case 'drowned_abbey:a': house.coffer.T -= 1; house.coffer.L += 2; text = `${me} sends divers into the undercroft and brings up 2 Lore.`; break;
+    case 'drowned_abbey:b': house.coffer.C += 2; text = `${me} sells the salvage rights for 2 Coin.`; break;
+    case 'fair_challenge:a': {
+      const L = Math.max(0, ...heldPlots(state, h).map((pid) => legionsOn(state, pid, h))); const d = R.d6(state.rng);
+      if (d + L >= 5) { gainRenown(state, h, 2, 'Event'); text = `${me} accepts the challenge and wins (${d} + ${L}): 2 Renown.`; }
+      else { gainRenown(state, h, -1, 'Event'); text = `${me} accepts the challenge and is beaten (${d} + ${L}): 1 Renown lost.`; }
+      break;
+    }
+    case 'fair_challenge:b': text = loseFavor(1) ? `${me} declines the challenge and loses 1 Favor.` : `${me} declines the challenge.`; break;
+    case 'reedmen:a': house.coffer.C -= 1; house.favor++; house.coffer.R++; text = `${me} grants the Reedmen their charter: 1 Favor and 1 Reed.`; break;
+    case 'reedmen:b': {
+      house.coffer.C += 2;
+      const spot = heldPlots(state, h).filter((pid) => legionsOn(state, pid, h) > 0).sort((a, b) => legionsOn(state, b, h) - legionsOn(state, a, h) || a - b)[0];
+      if (spot) removeLegions(state, spot, h, 1);
+      text = `${me} taxes the fens for 2 Coin${spot ? `, and a Legion deserts at ${plotById(spot).name}` : ''}.`; break;
+    }
+    case 'crown_envoy:a': { house.favor += 2; const paid = house.coffer.I > 0; if (paid) house.coffer.I--; text = `${me} swears fealty to the Crown: 2 Favor${paid ? ', and 1 Iron in tribute' : ''}.`; break; }
+    case 'crown_envoy:b': { const n = raise(h, 1); house.coffer.I++; loseFavor(1); text = `${me} asks the Crown for arms: 1 Iron${n ? ' and a Legion' : ''}.`; break; }
+  }
+  house.dilemmas = (house.dilemmas || 0) + 1;
+  log(state, h, `${D.name}: ${text}`, 'event');
+  fx(state, { t: 'dilemma', h, id, key });
+  endEventPhase(state);
 }
 
 function succession(state, i) {
@@ -909,6 +1067,7 @@ function succession(state, i) {
     log(state, i, `${dead} of ${dn(h.name)} dies. ${heirN}, a true-born Heir, takes the Dynasty.`, 'court');
     h.lord = { ...newLord(state, h, heirN), since: state.season };
     if (HOUSES[h.name].successionBonus) gainRenown(state, i, C.thorneSuccessionBonus, 'Succession');
+    if (h.betrothed != null) { gainRenown(state, i, 1, 'Betrothal'); log(state, i, `${dn(state.houses[h.betrothed].name)}, kin by marriage, stands beside the new lord: 1 Renown.`, 'court'); }
     h.heirsCrowned = (h.heirsCrowned || 0) + 1;
     newHeir(state, h);   // R23: the Heir now holds the Dynasty; the line needs a new, hidden Heir
     fx(state, { t: 'succession', h: i, result: 'G' });

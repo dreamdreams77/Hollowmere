@@ -94,10 +94,17 @@ switch away. Nothing in the original rules changes when they are off.
 | X4 | Envoy and Pacts | 1 Coin, once a Season: offer a rival a Pact, optionally with a gift of one resource (two Coin needed to gift Coin). If accepted, neither may Raid the other or target the other with Heron Cry or Ashen Pyre until the end of next Season. AI Houses decide by a public, deterministic rule (regard, fear of the proposer's Legions, a runaway leader, past oathbreaking, the lord's trait). A human answers in a dialog. |
 | X5 | Oathbreaking and regard | Raiding a Pact partner or striking it with a Rite breaks the Pact: the oathbreaker loses 1 Renown and 2 Favor; the betrayed House's regard falls by 4 and everyone else's by 2. Regard (-5 to +5) also moves with Raids, captures, thefts, Seals, refusals, Accords and kept Pacts, and is shown to the player as Hostile, Wary, Neutral, Cordial or Friendly. Wren's Accords are unchanged and still cannot be broken. |
 | X6 | Rosenvael's courtiers | Thorne, the weakest House in every simulation (as the source design itself notes), sends Envoys for free and up to twice a Season. |
+| X7 | Event choices | Eight extra Event cards join the twelve (drawn at random from all twenty). Each puts a choice between two outcomes to one House, named on the card (the most markers in Reach II, the most Favor, the fewest Legions, the most Grain, the least Lore, the most Renown, the most markers on Reed Plots, the least Renown; ties at random). A choice that cannot be paid is unavailable. AI lords choose by a public value rule coloured by their trait. Cards: Refugees at the Ford, The Bishop's Purse, A Captain Without a Banner, Rot in the Granaries, The Drowned Abbey, A Challenge at the Fair, The Reedmen's Charter, Envoy of the Crown (texts in `src/rules/data.js`, `DILEMMAS`). |
+| X8 | Betrothal | Action: offer your Heir in marriage to a House you have a Pact with, paying a 2-Coin dowry to it if accepted (Rosenvael, the oldest blood, pays none). One match per House for the game. If accepted, the Pact lasts the rest of the game, both Houses gain 1 Renown, and each learns whether the other's Heir (at that moment) is Genuine; a later new Heir is unknown again. When a betrothed House's Genuine Heir succeeds, it gains 1 more Renown. Breaking faith with kin (Raiding them or striking them with a Rite) dissolves the match and costs 2 Renown, 3 Favor and half again the usual loss of regard. AI Houses accept by the Pact rule plus a dowry bonus, and refuse while hiding an Impostor they know of. Not to be confused with Rosenvael's Vigil, which can replace an Impostor 'by marriage' privately (source rule). |
 
 Measured over 240 AI games each (`node tools/sim.mjs 240 4 5 <rules>`), passes fall from 14.8 to
 0.4 per House per game, Raids rise from 4.6 to about 10, and a game sees about ten Pacts and one
 broken oath in every three games.
+
+With X7 and X8 (`node tools/sim.mjs 300 4 7 expanded`), a game sees about 4.5 Event choices and
+1.5 Betrothals; about one game in thirteen has a House betray its kin by marriage. Win rates after
+X7/X8: Emberlain 42%, Tessaly 30%, Aldermoor 27%, Bramwell 26%, Scrivane 25%, Veylin 24%,
+Ostrander 14%, Rosenvael 11% (up from 7%; its free dowry and succession bonus help).
 
 ## Known balance status
 

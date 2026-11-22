@@ -268,6 +268,8 @@ export function rankActions(state, h = state.turn, { noise = level(state).noise,
       const pImp = known ? (tgt.heir.status === 'I' ? 1 : 0) : tgt ? 1 - pGenuine(tgt) : 0.8;
       score = after + pImp * C.sealRenown * (a.type === 'seal' ? 1 : 0.9);
       if (a.type === 'seal' && known) score -= 3;     // testing a Heir you already know is wasted
+    } else if (a.type === 'betroth' && state.houses[a.target].human) {
+      score = applyOn(base, a, h) + 0.5 - (HOUSES[me.name].vigil ? 0 : 0.4);   // a person answers: count on half a wedding
     } else if (a.type === 'play' && a.card === 'witness') {
       score = applyOn(base, a, h) + 0.35;
     } else score = applyOn(base, a, h);
@@ -378,7 +380,7 @@ export function explainAction(state, h, a) {
       const att = Math.min(a.n + E.legionsOn(state, a.to, h), 3) + (HOUSES[me.name].skirmish || 0);
       const p = def ? skirmishWin(att, Math.min(def, 3) + (HOUSES[tgt.name].skirmish || 0)) : 1;
       why.push(def ? `${Math.round(p * 100)}% chance to win the Skirmish at ${P(a.to)}` : `${P(a.to)} is undefended: a sure capture`);
-      if (E.pactWith(state, h, a.target)) why.push('Breaks your Pact: −1 Renown, −2 Favor, and every House will trust you less');
+      if (E.pactWith(state, h, a.target)) why.push(me.betrothed === a.target ? 'Betrays the House your line married into: −2 Renown, −3 Favor, and the whole river will shun you' : 'Breaks your Pact: −1 Renown, −2 Favor, and every House will trust you less');
       break;
     }
     case 'dynasty': why.push(`+${CONFIG_D.dynastyPurchaseRenown} Renown now and +1 at each Flood still to come`); if (!me.heir.knownBy.includes(h)) why.push('Risk: if your holder dies and your Heir is false, you lose 2 Renown and the Dynasty'); break;
@@ -387,6 +389,7 @@ export function explainAction(state, h, a) {
     case 'toil': why.push(`+1 ${RES_NAMES[a.res]}, free`); break;
     case 'fortify': why.push(`Walls at ${P(a.plot)}: +1 to its defence, and even an empty walled Plot must be fought for`); break;
     case 'envoy': why.push(`${E.pactAccepts(state, a.target, h, a.gift) ? 'Likely to be accepted' : 'Likely to be refused'}: a Pact keeps ${dnOf(state.houses[a.target])} from raiding you until the end of next Season`); break;
+    case 'betroth': why.push(`${state.houses[a.target].human ? 'They will answer for themselves' : E.betrothAccepts(state, a.target, h) ? 'Likely to be accepted' : 'Likely to be refused'}: +1 Renown each, your Pact with ${dnOf(state.houses[a.target])} lasts the game, and each House learns the other's Heir`); why.push(HOUSES[me.name].vigil ? 'Rosenvael pays no dowry' : 'Dowry: 2 Coin to them'); break;
     case 'investigate': why.push('Draws an Investigation card'); break;
     case 'vigil': why.push('Learns whether your Heir is Genuine (and replaces one Impostor by marriage)'); break;
     case 'reveal': why.push('Your Genuine Heir will score 4 Renown at the end'); break;

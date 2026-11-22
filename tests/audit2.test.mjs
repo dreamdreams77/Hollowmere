@@ -37,7 +37,9 @@ function invariants(s) {
       if (back.length !== 1 || back[0].until !== p.until) bad.push(`${h.name} pact not symmetric`);
       if (h.pacts.filter((q) => q.with === p.with).length > 1) bad.push(`${h.name} duplicate pact`);
       if (s.phase !== 'over' && p.until < s.season && s.phase !== 'harvest') bad.push(`${h.name} pact with ${p.with} outlived Season ${p.until} (now ${s.season})`);
-      if (p.until > s.season + 1) bad.push(`${h.name} pact until ${p.until} in Season ${s.season}`);
+      const life = h.betrothed === p.with && p.until === E.BETROTH_LIFE;   // X8: a betrothal Pact lasts the game
+      if (p.until > s.season + 1 && !life) bad.push(`${h.name} pact until ${p.until} in Season ${s.season}`);
+      if (h.betrothed != null && s.houses[h.betrothed].betrothed !== h.i) bad.push(`${h.name} betrothal is one-sided`);
     }
     if (s.rules !== 'expanded' && (h.pacts || []).length) bad.push(`${h.name} pact in original rules`);
   }
@@ -73,7 +75,8 @@ function randomGame({ houses, rules, seed, humans = [], maxSteps = 3000, check, 
   for (let step = 0; step < maxSteps && s.phase !== 'over'; step++) {
     if (s.pending) {
       let choice;
-      if (s.pending.type === 'pact') choice = { accept: R.next(rng) < 0.5 };
+      if (s.pending.type === 'pact' || s.pending.type === 'betroth') choice = { accept: R.next(rng) < 0.5 };
+      else if (s.pending.type === 'dilemma') choice = { pick: R.next(rng) < 0.5 ? 'a' : 'b' };
       else choice = { partners: R.shuffle(rng, s.pending.options.map((o) => o.house)).slice(0, R.int ? R.int(rng, 3) : Math.floor(R.next(rng) * 3)) };
       trace.push({ decide: choice });
       E.decide(s, choice);

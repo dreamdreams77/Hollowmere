@@ -200,7 +200,7 @@ export class App {
     for (let s = 1; s <= 12; s++) seasons.append(h('div', { class: `sdot${s < v.season ? ' past' : ''}${s === v.season ? ' now' : ''}${CONFIG.floodSeasons.includes(s) ? ' flood' : ''}`, title: `Season ${s}${CONFIG.floodSeasons.includes(s) ? ' · Flood' : ''}` }, ROMAN[s]));
     const cur = v.phase === 'actions' ? v.houses[v.turn] : null;
     const look = seasonLook(v.season);
-    const phaseTxt = v.phase === 'over' ? 'The game is over' : v.pending ? (v.pending.type === 'pact' ? 'An Envoy awaits your answer' : 'Bramwell chooses Accords') : cur ? `${cur.i === this.me ? 'Your' : dn(cur.name) + "'s"} Action · round ${v.round + 1} of 3` : v.phase;
+    const phaseTxt = v.phase === 'over' ? 'The game is over' : v.pending ? ({ pact: 'An Envoy awaits your answer', betroth: 'A marriage is offered', dilemma: 'A choice must be made' }[v.pending.type] || 'Bramwell chooses Accords') : cur ? `${cur.i === this.me ? 'Your' : dn(cur.name) + "'s"} Action · round ${v.round + 1} of 3` : v.phase;
     const nextFlood = CONFIG.floodSeasons.find((f) => f >= v.season);
     const pressure = h('div', { class: 'pressure', title: `Ember Pressure ${v.pressure} of ${CONFIG.pressureThreshold}. At 4 or more at a Flood, the heaviest caster loses a marker.` });
     for (let i = 0; i < CONFIG.pressureThreshold; i++) pressure.append(icon(img.flame(v.pressure >= i + 1), 'icon'));
@@ -229,7 +229,7 @@ export class App {
         h('li', {}, h('span', {}, 'Markers · Legions'), h('span', {}, `${E.totalMarkers(this.state, this.me)} · ${E.totalLegions(this.state, this.me)}`)),
         h('li', {}, h('span', {}, 'Dynasty'), h('span', {}, me.dynasty ? 'Held (+1 each Flood)' : `None (costs ${E.dynastyFavor(me)} Favor, 2 Reed)`)),
         H.cabal ? h('li', {}, h('span', {}, 'Cabal tokens'), h('span', {}, `${me.cabalTokens} of 2${me.cabalExposed ? ' · exposed' : ' · hidden'}`)) : null,
-        me.pacts.length ? h('li', {}, h('span', {}, 'Pacts'), h('span', {}, me.pacts.map((p) => `${dn(v.houses[p.with].name)} (to Season ${ROMAN[Math.min(12, p.until)]})`).join(', '))) : null,
+        me.pacts.length ? h('li', {}, h('span', {}, 'Pacts'), h('span', {}, me.pacts.map((p) => `${dn(v.houses[p.with].name)} (${p.until >= E.BETROTH_LIFE ? 'for life: your lines are joined' : `to Season ${ROMAN[Math.min(12, p.until)]}`})`).join(', '))) : null,
         me.oaths ? h('li', {}, h('span', { class: 'ver' }, 'Oaths broken'), h('span', { class: 'ver' }, String(me.oaths))) : null,
         me.accords.length ? h('li', {}, h('span', {}, 'Accords'), h('span', {}, me.accords.map((a) => dn(v.houses[a].name)).join(', '))) : null,
         h('li', {}, h('span', {}, 'Wins by'), h('span', { class: 'it' }, H.winsBy))),
@@ -251,7 +251,9 @@ export class App {
       else if (x.heir.status !== '?') tags.push(h('span', { class: 'tag b' }, x.heir.status === 'G' ? 'Heir: Genuine (you know)' : 'Heir: Impostor (you know)'));
       if (x.accords.length) tags.push(h('span', { class: 'tag' }, `Accord: ${x.accords.map((a) => dn(v.houses[a].name)).join(', ')}`));
       if (v.houses.some((y) => y.accords.includes(x.i) && y.i === this.me)) tags.push(h('span', { class: 'tag' }, 'Accord with you'));
-      if (x.pacts.some((p) => p.with === this.me)) tags.push(h('span', { class: 'tag b' }, 'Pact with you'));
+      if (x.betrothed === this.me) tags.push(h('span', { class: 'tag g' }, 'Kin by marriage'));
+      else if (x.pacts.some((p) => p.with === this.me)) tags.push(h('span', { class: 'tag b' }, 'Pact with you'));
+      if (x.betrothed != null && x.betrothed !== this.me) tags.push(h('span', { class: 'tag' }, `Betrothed: ${dn(v.houses[x.betrothed].name)}`));
       if (x.oaths) tags.push(h('span', { class: 'tag v' }, `Oathbreaker${x.oaths > 1 ? ' ×' + x.oaths : ''}`));
       if (v.rules === 'expanded') { const a = attitude(x.regard[this.me] || 0); tags.push(h('span', { class: `tag ${a.cls}`, title: 'How this House regards you' }, a.word)); }
       tags.push(h('span', { class: 'tag' }, `${E.totalMarkers(this.state, x.i)} markers`), h('span', { class: 'tag' }, `${E.totalLegions(this.state, x.i)} Legions`), h('span', { class: 'tag' }, `${x.favor} Favor`));
@@ -283,7 +285,7 @@ export class App {
     if (v.phase === 'over') { el.append(h('div', { class: 'waiting' }, 'The twelfth Flood has receded.', h('button', { class: 'btn primary', onclick: () => this.showResults() }, 'See the results'))); return; }
     if (!cur || cur.i !== this.me || v.pending || this.busy) {
       const key = v.pending ? v.houses[v.pending.h].name : cur ? cur.name : v.houses[0].name;
-      const msg = v.pending ? (v.pending.type === 'pact' ? 'An Envoy waits on your answer' : v.pending.h === this.me ? 'Choose your Accords' : `${dn(key)} weighs its Accords`) : cur ? `${lordName(cur)} of ${dn(key)} is deciding` : 'The world turns';
+      const msg = v.pending ? (v.pending.type === 'pact' ? 'An Envoy waits on your answer' : v.pending.type === 'betroth' ? 'A marriage waits on your answer' : v.pending.type === 'dilemma' ? `${eventById[v.pending.id].name}: the choice is yours` : v.pending.h === this.me ? 'Choose your Accords' : `${dn(key)} weighs its Accords`) : cur ? `${lordName(cur)} of ${dn(key)} is deciding` : 'The world turns';
       el.append(h('div', { class: 'waiting' }, icon(img.shield(key), 'quill'), `${msg}…`));
       return;
     }
@@ -299,7 +301,7 @@ export class App {
     const grid = h('div', { class: 'act-grid' });
     const costOf = {
       build: CONFIG.buildCost, keep: CONFIG.buildCost, muster: E.musterCost(me), raid: { I: 1 }, recapture: CONFIG.recaptureCost,
-      trade: null, favor: {}, investigate: E.investigateCosts(me)[0], play: {}, seal: { L: 1 }, reveal: null, rite: null, dynasty: { R: 2 }, cabal: { C: 1 }, vigil: { C: 1 }, toil: {}, fortify: E.FORTIFY_COST, envoy: H.vigil ? {} : { C: 1 }, pass: me.coffer.C ? { C: 1 } : {},
+      trade: null, favor: {}, investigate: E.investigateCosts(me)[0], play: {}, seal: { L: 1 }, reveal: null, rite: null, dynasty: { R: 2 }, cabal: { C: 1 }, vigil: { C: 1 }, toil: {}, fortify: E.FORTIFY_COST, betroth: H.vigil ? {} : { C: E.BETROTH_DOWRY }, envoy: H.vigil ? {} : { C: 1 }, pass: me.coffer.C ? { C: 1 } : {},
     };
     const extra = { trade: `${E.tradeRate(me)} for 1`, reveal: '2 Favor', rite: 'card cost', dynasty: `${E.dynastyFavor(me)} Favor +`, favor: 'free', play: 'free', investigate: H.investigateCost && !Object.keys(H.investigateCost).length ? 'free' : null };
     for (const c of cat) {
@@ -323,6 +325,7 @@ export class App {
       toil: 'Once a Season, gain 1 resource your Plots produce (any, if you hold two Plots or fewer).',
       fortify: 'Wall a Plot you hold: +1 to its defence, and Raiders must fight even if it is empty.',
       envoy: 'Offer a rival a Pact: no Raids or Rite attacks between you until the end of next Season. Breaking it costs Renown, Favor and trust.',
+      betroth: 'Offer your Heir in marriage to a House you have a Pact with. If accepted: +1 Renown each, the Pact lasts the game, and each House learns the other\'s Heir.',
     }[t];
   }
   modeHint() {
@@ -351,6 +354,8 @@ export class App {
       case 'trade': return this.showTrade(options);
       case 'toil': return this.choose('Toil', 'Your people work the land for one resource.', options.map((o) => ({ label: `+1 ${RES_NAME[o.res]}`, img: img.res(o.res), action: o })));
       case 'envoy': return this.showEnvoy(options);
+      case 'betroth': return this.choose('Offer a marriage', `Your Heir's hand, with ${HOUSES[this.state.houses[this.me].name].vigil ? 'no dowry (Rosenvael is the oldest blood)' : `a dowry of ${E.BETROTH_DOWRY} Coin`}. If they accept, your Pact lasts the rest of the game, both Houses gain 1 Renown, and each learns whether the other's Heir is Genuine. Betraying kin costs twice as much as breaking a Pact.`,
+        options.map((o) => { const x = this.state.houses[o.target]; return { label: `${dn(x.name)}${x.human ? '' : E.betrothAccepts(this.state, o.target, this.me) ? ' (likely to accept)' : ' (likely to refuse)'}`, img: img.shield(x.name), action: o }; }));
       case 'play': return this.showHand('inv');
       case 'rite': return this.showHand('rite');
       case 'seal': return this.choose('Seal a rival Heir', 'Spend 1 Lore and a Seal card. An Impostor is exposed and you gain 2 Renown; a Genuine result stays private.',
@@ -398,7 +403,7 @@ export class App {
     if (!chk.ok) { this.deny(chk.reason); return; }
     this.closeModal(); this.mode = null; this.world.setSelection({ targets: [] });
     // Undo: keep the moment before this Action, unless the Action reveals something hidden or random.
-    const reveals = ['investigate', 'seal', 'vigil', 'envoy'].includes(action.type) || (action.type === 'raid' && E.legionsOn(this.state, action.to, action.target) > 0) || (action.type === 'rite' && ['mist_veil', 'drowned_choir', 'ink_of_names'].includes(action.rite)) || (action.type === 'play' && action.card === 'witness');
+    const reveals = ['investigate', 'seal', 'vigil', 'envoy', 'betroth'].includes(action.type) || (action.type === 'raid' && E.legionsOn(this.state, action.to, action.target) > 0) || (action.type === 'rite' && ['mist_veil', 'drowned_choir', 'ink_of_names'].includes(action.rite)) || (action.type === 'play' && action.card === 'witness');
     this.undo = reveals ? null : { state: E.clone(this.state), lastFx: this.lastFx, season: this.state.season, label: E.ACTION_LABEL[action.type] };
     const before = this.state.houses[this.me].coffer;
     const snapshot = { ...before };
@@ -420,7 +425,7 @@ export class App {
       while (this.state && this.state === game && this.state.phase !== 'over') {
         const s = this.state;
         if (s.pending) {
-          if (s.houses[s.pending.h].human) { if (s.pending.h !== this.me) await this.handOver(s.pending.h); this.refresh(); if (s.pending.type === 'pact') this.showPact(); else this.showAccords(); break; }
+          if (s.houses[s.pending.h].human) { if (s.pending.h !== this.me) await this.handOver(s.pending.h); this.refresh(); if (s.pending.type === 'pact') this.showPact(); else if (s.pending.type === 'betroth') this.showBetroth(); else if (s.pending.type === 'dilemma') this.showDilemma(); else this.showAccords(); break; }
           E.decide(s, { partners: suggestAccords(s, s.pending.h) }); try { await this.present(); } catch (err) { console.error('presentation failed', err); } continue;
         }
         const cur = s.houses[s.turn];
@@ -505,11 +510,13 @@ export class App {
       case 'cabalHarvest': break;
       case 'pact': this.audio.play('favor'); if (f.with === this.me || mine) this.toast(`A Pact is sworn between ${dn(v.houses[f.h].name)} and ${dn(v.houses[f.with].name)}.`); break;
       case 'oathbreak': this.audio.play('deny'); this.toast(`${name} breaks its Pact with ${dn(v.houses[f.victim].name)}! Every House marks it.`); break;
-      case 'refused': if (mine) this.toast(`${dn(v.houses[f.by].name)} turns your Envoy away.`); break;
+      case 'refused': if (mine) this.toast(f.what === 'betroth' ? `${dn(v.houses[f.by].name)} declines the marriage.` : `${dn(v.houses[f.by].name)} turns your Envoy away.`); break;
+      case 'betrothal': this.audio.play('renown'); this.toast(`${dn(v.houses[f.h].name)} and ${dn(v.houses[f.with].name)} are joined by marriage.${f.h === this.me || f.with === this.me ? ' You now know the truth of their Heir.' : ''}`); break;
+      case 'dilemma': this.audio.play(f.key === 'a' ? 'favor' : 'click'); break;
       case 'toil': this.audio.play('build'); break;
       case 'fortify': this.audio.play('keep'); break;
     }
-    if (['pact', 'refused', 'oathbreak', 'raid', 'dynasty', 'succession'].includes(f.t)) {
+    if (['pact', 'refused', 'oathbreak', 'raid', 'dynasty', 'succession', 'betrothal'].includes(f.t)) {
       let qs = quotesForFx(this.state, f);
       if (f.t === 'raid' && f.h !== this.me && f.target !== this.me) qs = qs.slice(0, 1);   // others' wars: one voice
       this.speak(qs);
@@ -798,6 +805,27 @@ export class App {
       h('p', { class: 'small it', style: { textAlign: 'center' } }, `They are ${TRAITS[from.lord.trait].text}${from.oaths ? `, and have broken ${from.oaths} oath${from.oaths > 1 ? 's' : ''} before` : ''}. You regard them as ${a.word.toLowerCase()}.`),
       h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: () => answer(true) }, 'Swear the Pact'), h('button', { class: 'btn', onclick: () => answer(false) }, 'Send them away'))], { dismiss: false });
   }
+  showBetroth() {
+    const p = this.state.pending; const from = this.state.houses[p.from];
+    const a = attitude(this.state.houses[this.me].regard[p.from] || 0);
+    const answer = async (accept) => { this.closeModal(); E.decide(this.state, { accept }); try { await this.present(); } catch (err) { console.error(err); } this.loop(); };
+    this.modal([h('div', { style: { textAlign: 'center' } }, h('img', { src: img.shield(from.name, 160), alt: '', style: { width: '84px' } })),
+      h('h2', {}, `${dn(from.name)} offers a marriage`),
+      h('p', { class: 'lede' }, `${lordName(from)} offers ${heirName(this.state, from)}'s hand to your Heir${HOUSES[from.name].vigil ? '. Rosenvael brings its name and no dowry' : `, with a dowry of ${E.BETROTH_DOWRY} Coin`}.`),
+      h('ul', { class: 'facts small' }, h('li', {}, 'Your Pact with them lasts the rest of the game.'), h('li', {}, 'Both Houses gain 1 Renown, and 1 more when a betrothed Genuine Heir succeeds.'),
+        h('li', {}, 'Each House learns whether the other\'s Heir is Genuine.'), h('li', {}, 'Betraying kin later costs 2 Renown, 3 Favor and far more trust than a broken Pact.')),
+      h('p', { class: 'small it', style: { textAlign: 'center' } }, `They are ${TRAITS[from.lord.trait].text}${from.oaths ? `, and have broken ${from.oaths} oath${from.oaths > 1 ? 's' : ''} before` : ''}. You regard them as ${a.word.toLowerCase()}.`),
+      h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: () => answer(true) }, 'Accept the match'), h('button', { class: 'btn', onclick: () => answer(false) }, 'Decline'))], { dismiss: false });
+  }
+  showDilemma() {
+    const p = this.state.pending; const ev = eventById[p.id];
+    const answer = async (pick) => { this.closeModal(); E.decide(this.state, { pick }); try { await this.present(); } catch (err) { console.error(err); } this.loop(); };
+    const card = h('div', { class: 'card event-card' }, h('img', { class: 'art', src: img.art('event', p.id, { id: p.id }), alt: '' }),
+      h('div', { class: 'body' }, h('div', { class: 'kind' }, 'Event · your choice'), h('h4', {}, ev.name), h('p', {}, ev.text)));
+    this.modal([card, h('p', { class: 'lede it' }, eventFlavour(p.id, this.state)),
+      h('div', { class: 'pick-list' }, p.options.map((o) => h('button', { class: `btn choice${o.ok ? '' : ' off'}`, 'aria-disabled': !o.ok, onclick: () => (o.ok ? answer(o.key) : this.deny(o.why)) },
+        h('b', {}, o.label), h('span', { class: 'small' }, o.ok ? o.text : `${o.text} (${o.why})`))))], { dismiss: false });
+  }
   showAccords() {
     const p = this.state.pending; const sug = new Set(suggestAccords(this.state, p.h)); const sel = new Set(sug);
     const list = h('div', { class: 'pick-list' });
@@ -900,12 +928,14 @@ export class App {
       sec('Scoring', h('ul', { class: 'facts' }, h('li', {}, 'Reach at Seasons III, VI, IX: 3 for strictly the most markers.'), h('li', {}, 'Reach at Season XII: 6 first, 3 second.'), h('li', {}, 'The Delta Mouth (Reach V) doubles all Reach scoring.'), h('li', {}, 'Dynasty: 2 on purchase, 1 each Flood. A Genuine Heir revealed: 4 at the end. An Impostor succession: −2 and the Dynasty.'), h('li', {}, 'Seal: 2 per Impostor. Caddoc: 2 per Rite. Thorne: 3 when a Genuine Heir succeeds. Ash and Sable: Season XII bonuses.'), h('li', {}, 'Ties: most markers, then most resources.'))),
       sec('Heirs and magic', h('p', {}, 'Each House holds one hidden Heir from five cards: four Impostors and one Genuine. You do not know your own until a Vigil, a Seal or a succession shows it. Each Rite raises Ember Pressure; at 4 or more at a Flood the House that cast the most Rites that Season loses a marker and the Pressure resets.')),
       sec('The eight Houses', h('table', { class: 'score-table' }, HOUSE_ORDER.map((n) => h('tr', {}, h('td', {}, h('img', { src: img.shield(n), alt: '' }), ` ${dn(n)}`), h('td', { class: 'small' }, HOUSES[n].blurb))))),
-      sec('Expanded rules (optional)', h('p', { class: 'small it' }, 'Additions to the original game, chosen at the start. Every one is listed in docs/RULES.md (X1 to X6).'),
+      sec('Expanded rules (optional)', h('p', { class: 'small it' }, 'Additions to the original game, chosen at the start. Every one is listed in docs/RULES.md (X1 to X8).'),
         h('ul', { class: 'facts' },
           h('li', {}, 'Toil (free, once a Season): gain 1 resource your Plots produce. A House holding two Plots or fewer may take any resource.'),
           h('li', {}, 'Fortify (1 Stone, 1 Timber): wall a Plot you hold. Its defenders gain 1, and Raiders must fight even an empty walled Plot.'),
           h('li', {}, 'Envoy (1 Coin; free and twice a Season for Rosenvael): offer a Pact, with an optional gift. Partners may not Raid each other or strike each other with Rites until the end of next Season.'),
           h('li', {}, 'Oathbreaking: a Pact can be broken by Raiding or striking your partner. It costs 1 Renown and 2 Favor, and every House trusts you less.'),
+          h('li', {}, `Betroth (${E.BETROTH_DOWRY} Coin dowry; none for Rosenvael): offer your Heir in marriage to a House you have a Pact with. If accepted, the Pact lasts the game, both gain 1 Renown (and 1 more when a betrothed Genuine Heir succeeds), and each House learns the other's Heir. Betraying kin costs 2 Renown and 3 Favor.`),
+          h('li', {}, 'Event choices: eight extra Event cards each put a choice to one House (the most Favor, the fewest Legions, and so on), such as taking a bribe or refusing it in public.'),
           h('li', {}, 'Regard: Houses remember Raids, thefts, Seals, Pacts and betrayals. Rivals who resent you raid you sooner and refuse your Envoys.'),
           h('li', {}, 'Lords: each House is ruled by a named lord whose trait shapes how it plays. A Dynasty holder who dies is succeeded by the Heir, or by a regent if the Heir was false.'))),
       h('p', { class: 'small muted it' }, 'Where the source rules were silent or contradictory, the decisions taken are listed in docs/RULES.md.'),
