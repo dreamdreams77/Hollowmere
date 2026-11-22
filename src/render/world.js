@@ -251,7 +251,7 @@ export class World {
 
   // Frame -------------------------------------------------------------------------------------
   frame() {
-    const dt = Math.min(0.05, this.clock.getDelta()); this.time += dt; const t = this.time;
+    const real = Math.min(0.05, this.clock.getDelta()); const dt = this.fixedDt || real; this.time += dt; const t = this.time;   // fixedDt: film mode, one exact step per frame
     WORLD_UNIFORMS.uTime.value = t;
     // ease the Season look
     const L = this.lookNow, G = this.look, k = Math.min(1, dt * 0.8);
@@ -276,10 +276,17 @@ export class World {
     const cp = Math.cos(c.pitch);
     this.camera.position.set(c.target.x + Math.sin(c.yaw) * cp * c.dist, c.target.y + Math.sin(c.pitch) * c.dist, c.target.z + Math.cos(c.yaw) * cp * c.dist);
     this.camera.lookAt(c.target);
+    // film mode: a scripted camera ({ pos, look, fov, band }) replaces the orbit
+    let look = c.target, bandW = 0.2 + Math.min(0.22, c.dist / 420);
+    if (this.shot) {
+      const s = this.shot(t); look = s.look; this.camera.position.copy(s.pos); this.camera.lookAt(look);
+      if (s.fov && s.fov !== this.camera.fov) { this.camera.fov = s.fov; this.camera.updateProjectionMatrix(); }
+      bandW = s.band ?? 0.2 + Math.min(0.22, this.camera.position.distanceTo(look) / 420);
+    }
     // depth-of-field band follows the camera target
-    const d = this.post.dof; d.focus = this.camera.position.distanceTo(c.target);
-    const sp = c.target.clone().project(this.camera); d.band.y = sp.y * 0.5 + 0.5;
-    d.band.w = 0.2 + Math.min(0.22, c.dist / 420);
+    const d = this.post.dof; d.focus = this.camera.position.distanceTo(look);
+    const sp = look.clone().project(this.camera); d.band.y = sp.y * 0.5 + 0.5;
+    d.band.w = bandW;
     // animated scenery
     for (const o of this.scenery.animated) o.rotation.z = t * o.userData.spin * L.wind;
     for (const b of this.scenery.boats) { const u = b.userData.bob; b.position.x = u.x + Math.sin(t * 0.08 + u.ph) * 3; b.position.y = WATER_Y + this.water.uniforms.uFlood.value * 1.45 + Math.sin(t * 1.6 + u.ph) * 0.05; b.rotation.z = Math.sin(t * 1.3 + u.ph) * 0.05; }
@@ -300,6 +307,7 @@ export class World {
   }
   // Dynamic resolution: drop the render scale when frames run slow, raise it when there is room.
   adapt(ms, dt) {
+    if (this.fixedDt) return;   // film mode renders every frame at full quality
     this.frameMs = this.frameMs * 0.95 + dt * 1000 * 0.05;
     this.adaptT = (this.adaptT || 0) + dt; if (this.adaptT < 2) return; this.adaptT = 0;
     if (this.frameMs > 60 && this.post.dof.maxCoc > 0) { this.post.dof.maxCoc = 0; }                                      // drop the blur before the sharpness
