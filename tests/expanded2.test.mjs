@@ -117,3 +117,19 @@ test('raiding kin by marriage costs twice a broken Pact and dissolves the match'
   assert.ok(W.renown <= r - 2 + 2, 'lost 2 Renown for the betrayal (a capture may add some back)');
   assert.ok(s.log.some((l) => /married into/.test(l.text)));
 });
+
+test('X9 balance: only in the Expanded rules', () => {
+  const ex = E.newGame({ houses: ['Ash', 'Thorne', 'Raven'], seed: 'x9', rules: 'expanded' });
+  const og = E.newGame({ houses: ['Ash', 'Thorne', 'Raven'], seed: 'x9', rules: 'original' });
+  // Skirmish modifiers count only when attacking
+  assert.equal(E.skirmishMod(ex, 'Ash', true), 1); assert.equal(E.skirmishMod(ex, 'Ash', false), 0);
+  assert.equal(E.skirmishMod(ex, 'Raven', true), -1); assert.equal(E.skirmishMod(ex, 'Raven', false), 0);
+  assert.equal(E.skirmishMod(og, 'Ash', false), 1); assert.equal(E.skirmishMod(og, 'Raven', false), -1);
+  // Briarkeep starts walled
+  const t = (s) => s.houses.find((x) => x.name === 'Thorne');
+  const seat = (s) => E.heldPlots(s, t(s).i)[0];
+  assert.equal(ex.plots[seat(ex) - 1].walls, t(ex).i); assert.ok(og.plots[seat(og) - 1].walls == null);
+  // a proven Rosenvael line is worth 6; Rosenvael Musters from Season 2
+  assert.equal(E.heirEndRenown(ex, t(ex)), 6); assert.equal(E.heirEndRenown(og, t(og)), 4);
+  assert.equal(E.musterFrom(ex, t(ex)), 2); assert.equal(E.musterFrom(og, t(og)), 3);
+});

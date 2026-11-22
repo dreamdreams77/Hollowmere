@@ -96,6 +96,7 @@ switch away. Nothing in the original rules changes when they are off.
 | X6 | Rosenvael's courtiers | Thorne, the weakest House in every simulation (as the source design itself notes), sends Envoys for free and up to twice a Season. |
 | X7 | Event choices | Eight extra Event cards join the twelve (drawn at random from all twenty). Each puts a choice between two outcomes to one House, named on the card (the most markers in Reach II, the most Favor, the fewest Legions, the most Grain, the least Lore, the most Renown, the most markers on Reed Plots, the least Renown; ties at random). A choice that cannot be paid is unavailable. AI lords choose by a public value rule coloured by their trait. Cards: Refugees at the Ford, The Bishop's Purse, A Captain Without a Banner, Rot in the Granaries, The Drowned Abbey, A Challenge at the Fair, The Reedmen's Charter, Envoy of the Crown (texts in `src/rules/data.js`, `DILEMMAS`). |
 | X8 | Betrothal | Action: offer your Heir in marriage to a House you have a Pact with, paying a 2-Coin dowry to it if accepted (Rosenvael, the oldest blood, pays none). One match per House for the game. If accepted, the Pact lasts the rest of the game, both Houses gain 1 Renown, and each learns whether the other's Heir (at that moment) is Genuine; a later new Heir is unknown again. When a betrothed House's Genuine Heir succeeds, it gains 1 more Renown. Breaking faith with kin (Raiding them or striking them with a Rite) dissolves the match and costs 2 Renown, 3 Favor and half again the usual loss of regard. AI Houses accept by the Pact rule plus a dowry bonus, and refuse while hiding an Impostor they know of. Not to be confused with Rosenvael's Vigil, which can replace an Impostor 'by marriage' privately (source rule). |
+| X9 | Balance | From simulation, to narrow the spread of win rates: Emberlain's +1 and Ostrander's −1 Skirmish modifiers count only when that House attacks; Briarkeep (Rosenvael's seat) starts the game walled; Rosenvael may Muster from Season 2 (not 3); a proven Genuine Rosenvael Heir scores 6 at the end (not 4); and a Betrothal is worth 2 Renown to Rosenvael (1 to everyone else). |
 
 Measured over 240 AI games each (`node tools/sim.mjs 240 4 5 <rules>`), passes fall from 14.8 to
 0.4 per House per game, Raids rise from 4.6 to about 10, and a game sees about ten Pacts and one
@@ -107,6 +108,12 @@ X7/X8: Emberlain 42%, Tessaly 30%, Aldermoor 27%, Bramwell 26%, Scrivane 25%, Ve
 Ostrander 14%, Rosenvael 11% (up from 7%; its free dowry and succession bonus help).
 
 ## Known balance status
+
+After X9 (Expanded rules, two runs of 240 four-player games, seeds 11 and 13; one run's spread is
+about ±4 points): Emberlain 32–38%, Veylin 27–32%, Bramwell 24–29%, Scrivane 22–28%, Aldermoor
+18–25%, Tessaly 22–24%, Ostrander about 20%, Rosenvael 17–22%. Before X9 the spread was 7–42%.
+Emberlain stays the strongest; the setup screen marks it as a good first House and Rosenvael as
+challenging. The table below is the earlier measurement, kept for the original rules.
 
 `tools/sim.mjs` plays AI against AI (four players, 240 games). The rebuilt AI plans two Actions
 ahead within a Season, scores itself against the strongest rival, reads threats (walls, Pacts,

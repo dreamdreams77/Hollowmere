@@ -6,6 +6,8 @@ import { chooseAction, suggestAccords, PERSONA, advise, applyDifficulty } from '
 import { Tutorial } from './tutorial.js';
 import { SCENARIOS, scenarioById } from '../content/scenarios.js';
 const SCEN_KEY = 'hollowmere.scenarios.v1';
+// A House's weakness as it stands under the chosen rules (X9 moves Rosenvael's first Muster to Season 2).
+const weakAt = (name, rules) => (rules === 'expanded' && HOUSES[name].musterFrom ? HOUSES[name].weakAt.replace(/Season \d+/, 'Season 2') : HOUSES[name].weakAt);
 import { loadRecords, recordGame, resetRecords } from '../meta/records.js';
 import { lordsFor } from '../meta/legacy.js';
 import { renderRecordsSheet, unlockToast, lineageChoice } from './meta-ui.js';
@@ -19,7 +21,8 @@ const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 
 const costChips = (cost) => Object.entries(cost).filter(([, n]) => n).flatMap(([r, n]) => [String(n), icon(img.res(r), 'icon')]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // How hard each House is to win with, from AI-vs-AI simulation (tools/sim.mjs).
-const DIFFICULTY = { Thorne: 'Challenging' };
+// Setup-screen labels from the balance simulations (docs/RULES.md): the strongest and weakest Houses.
+const DIFFICULTY = { Thorne: ['Challenging', 'v'], Ash: ['Good first House', 'g'] };
 export function attitude(r) {
   if (r <= -3) return { word: 'Hostile', cls: 'v' };
   if (r <= -1) return { word: 'Wary', cls: '' };
@@ -68,9 +71,9 @@ export class App {
     const renderDetail = () => {
       const H = HOUSES[pick.house]; const L = LORE[pick.house];
       pick.lineage = false; clear(lineSlot); const lc = lineageChoice(pick.house, loadRecords(), (on) => { pick.lineage = on; }); if (lc) lineSlot.append(lc);
-      put(clear(detail), h('div', {}, h('b', {}, `House ${L.display} of ${L.seat}, the ${H.title}. `), h('span', { class: 'it' }, `"${L.words}"`), DIFFICULTY[pick.house] ? h('span', { class: 'tag v', style: { marginLeft: '6px' } }, DIFFICULTY[pick.house]) : null),
+      put(clear(detail), h('div', {}, h('b', {}, `House ${L.display} of ${L.seat}, the ${H.title}. `), h('span', { class: 'it' }, `"${L.words}"`), DIFFICULTY[pick.house] ? h('span', { class: `tag ${DIFFICULTY[pick.house][1]}`, style: { marginLeft: '6px' } }, DIFFICULTY[pick.house][0]) : null),
         h('div', { class: 'small it' }, L.history),
-        h('div', { class: 'small' }, H.blurb), h('div', { class: 'small muted' }, `Wins by: ${H.winsBy}. Weak at: ${H.weakAt}.`));
+        h('div', { class: 'small' }, H.blurb), h('div', { class: 'small muted' }, `Wins by: ${H.winsBy}. Weak at: ${weakAt(pick.house, pick.rules || this.settings.rules || 'expanded')}.`));
     };
     for (const name of HOUSE_ORDER) {
       const b = h('button', { class: `house-pick${name === pick.house ? ' sel' : ''}`, onclick: () => {
@@ -109,6 +112,7 @@ export class App {
       h('div', { class: 'setup-row' },
         h('button', { class: 'btn primary', onclick: () => { this.audio.start(); this.settings.rules = pick.rules; this.settings.difficulty = pick.difficulty; this.saveSettings(); this.newGame(pick); } }, 'Begin the first Season'),
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showScenarios(); } }, 'Scenarios'),
+        window.installPrompt ? h('button', { class: 'btn', onclick: async () => { const p = window.installPrompt; window.installPrompt = null; p.prompt(); try { await p.userChoice; } catch { /* dismissed */ } this.showTitle(); } }, 'Install') : null,
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRecords(); } }, 'Records'),
         saved ? h('button', { class: 'btn blue', onclick: () => { this.audio.start(); this.load(); } }, 'Continue saved game') : null,
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRules(); } }, 'How to play')),
@@ -234,7 +238,7 @@ export class App {
         me.accords.length ? h('li', {}, h('span', {}, 'Accords'), h('span', {}, me.accords.map((a) => dn(v.houses[a].name)).join(', '))) : null,
         h('li', {}, h('span', {}, 'Wins by'), h('span', { class: 'it' }, H.winsBy))),
       h('div', { class: 'heir' }, h('img', { src: img.heir(me.name, me.heir.status), alt: 'Your Heir' }),
-        h('div', {}, h('div', {}, h('b', {}, `Your Heir, ${heirName(this.state, this.state.houses[this.me])}: `), this.heirText(me, v)), h('div', { class: 'it muted' }, me.heir.status === '?' ? 'Four in five are Impostors. A Vigil, a Seal or a succession will show the truth.' : me.heir.status === 'G' && !me.heir.revealed ? 'Reveal it (2 Favor) to score 4 at the end.' : me.heir.status === 'I' ? 'Should your Dynasty holder die, the Dynasty is lost.' : 'It will score 4 Renown at the end.'))),
+        h('div', {}, h('div', {}, h('b', {}, `Your Heir, ${heirName(this.state, this.state.houses[this.me])}: `), this.heirText(me, v)), h('div', { class: 'it muted' }, me.heir.status === '?' ? 'Four in five are Impostors. A Vigil, a Seal or a succession will show the truth.' : me.heir.status === 'G' && !me.heir.revealed ? `Reveal it (2 Favor) to score ${E.heirEndRenown(this.state, this.state.houses[this.me])} at the end.` : me.heir.status === 'I' ? 'Should your Dynasty holder die, the Dynasty is lost.' : `It will score ${E.heirEndRenown(this.state, this.state.houses[this.me])} Renown at the end.`))),
       this.state.scenario ? (() => { const sc = scenarioById[this.state.scenario]; const r = sc.objective.check(this.state, this.me); return h('div', { class: `objective small${r.done ? ' done' : r.failed ? ' failed' : ''}` }, h('b', {}, `${sc.title}: `), sc.objective.text, h('div', { class: 'it' }, r.progress)); })() : null,
       h('div', { class: 'rumour small it' }, h('b', {}, 'At the inn: '), rumour(v, this.me)),
       h('div', { class: 'hands' },
@@ -300,7 +304,7 @@ export class App {
     el.append(h('div', { class: 'act-head' }, h('div', { class: 'who' }, `Your Action ${v.round + 1} of 3`), h('div', { class: 'hint' }, hint, this.mode ? [' ', h('button', { class: 'btn', style: { minHeight: '34px', padding: '0 10px', fontSize: '15px' }, onclick: () => this.cancelMode() }, 'Cancel')] : null)));
     const grid = h('div', { class: 'act-grid' });
     const costOf = {
-      build: CONFIG.buildCost, keep: CONFIG.buildCost, muster: E.musterCost(me), raid: { I: 1 }, recapture: CONFIG.recaptureCost,
+      build: CONFIG.buildCost, keep: CONFIG.buildCost, muster: E.musterCost(me, this.state), raid: { I: 1 }, recapture: CONFIG.recaptureCost,
       trade: null, favor: {}, investigate: E.investigateCosts(me)[0], play: {}, seal: { L: 1 }, reveal: null, rite: null, dynasty: { R: 2 }, cabal: { C: 1 }, vigil: { C: 1 }, toil: {}, fortify: E.FORTIFY_COST, betroth: H.vigil ? {} : { C: E.BETROTH_DOWRY }, envoy: H.vigil ? {} : { C: 1 }, pass: me.coffer.C ? { C: 1 } : {},
     };
     const extra = { trade: `${E.tradeRate(me)} for 1`, reveal: '2 Favor', rite: 'card cost', dynasty: `${E.dynastyFavor(me)} Favor +`, favor: 'free', play: 'free', investigate: H.investigateCost && !Object.keys(H.investigateCost).length ? 'free' : null };
@@ -319,7 +323,7 @@ export class App {
       muster: 'Add a Legion to a Plot you hold (three at most).', raid: 'March up to two Legions into an adjacent rival Plot. Win to take a marker.',
       recapture: 'Flip back a marker you lost, with a Legion next to it.', trade: 'Trade a surplus at the Bank.', favor: 'Gain 1 Favor (once a Season).',
       investigate: 'Draw an Investigation card (hand of three).', play: 'Play a Testimony, Document or Witness.', seal: "Test a rival's Heir. An Impostor is worth 2 Renown.",
-      reveal: 'Proclaim your known Genuine Heir. It scores 4 at the end.', rite: 'Cast a Rite from your hand. It raises Ember Pressure.',
+      reveal: `Proclaim your known Genuine Heir. It scores ${E.heirEndRenown(this.state, this.state.houses[this.me])} at the end.`, rite: 'Cast a Rite from your hand. It raises Ember Pressure.',
       dynasty: 'Found a Dynasty: 2 Renown now, 1 more at each Flood.', cabal: 'Place a hidden Cabal token on or next to your Plots.',
       vigil: 'Learn your own Heir. An Impostor may be replaced once by marriage.', pass: 'Do nothing. Costs 1 Coin if you have one.',
       toil: 'Once a Season, gain 1 resource your Plots produce (any, if you hold two Plots or fewer).',
@@ -665,6 +669,12 @@ export class App {
       this.ui.append(el);
     });
   }
+  // The browser offers installation a moment after load: add the button without redrawing the title.
+  onInstallable() {
+    const anchor = [...document.querySelectorAll('#title button')].find((b) => b.textContent === 'Scenarios');
+    if (!anchor || [...anchor.parentNode.children].some((b) => b.textContent === 'Install')) return;
+    anchor.after(h('button', { class: 'btn', onclick: async () => { const p = window.installPrompt; window.installPrompt = null; if (!p) return; p.prompt(); try { await p.userChoice; } catch { /* dismissed */ } this.showTitle(); } }, 'Install'));
+  }
   showScenarios() {
     let done = {}; try { done = JSON.parse(store.getItem(SCEN_KEY) || '{}'); } catch { done = {}; }
     this.modal([h('h2', {}, 'Scenarios'), h('p', { class: 'lede' }, 'Set openings with a goal of their own. Winning is still winning; the goal is a second test.'),
@@ -773,7 +783,7 @@ export class App {
         h('li', {}, h('span', {}, 'Cards'), h('span', {}, `${x.rites} Rites · ${x.invHand} Investigation`)),
         H.cabal ? h('li', {}, h('span', {}, 'Cabal'), h('span', {}, x.cabalExposed ? `${x.cabalTokens} tokens, exposed` : 'unknown')) : null,
         h('li', {}, h('span', {}, 'Renown by source'), h('span', {}, Object.entries(x.renownBy).map(([k, n]) => `${k} ${n}`).join(', ') || 'none yet')),
-        h('li', {}, h('span', {}, 'Wins by · weak at'), h('span', { class: 'it' }, `${H.winsBy} · ${H.weakAt}`))),
+        h('li', {}, h('span', {}, 'Wins by · weak at'), h('span', { class: 'it' }, `${H.winsBy} · ${weakAt(x.name, this.state.rules)}`))),
       h('div', { class: 'row-btns' }, h('button', { class: 'btn', onclick: () => this.closeModal() }, 'Close'))]);
   }
   showEnvoy(options) {

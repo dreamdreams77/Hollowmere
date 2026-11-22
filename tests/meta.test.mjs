@@ -222,3 +222,8 @@ test('legacy end to end: a finished game seeds the next lord of the same House',
     resetRecords();
   });
 });
+
+test('the offline cache list (sw.js) matches the shipped files', async () => {
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('node', ['tools/gen-sw.mjs', '--check']);   // throws if stale
+});

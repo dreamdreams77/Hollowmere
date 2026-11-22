@@ -50,4 +50,10 @@ async function boot() {
   const veil = document.getElementById('loading'); veil.classList.add('gone'); setTimeout(() => veil.remove(), 900);
   window.READY = true;
 }
+// Installable, offline app: register the cache (not on localhost unless ?sw=1, so development
+// always loads fresh files) and keep the browser's install prompt for the title screen's button.
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); window.installPrompt = e; window.hollowmere?.app?.onInstallable?.(); });
+if ('serviceWorker' in navigator && window.isSecureContext && (!/^(localhost|127\.)/.test(location.hostname) || new URLSearchParams(location.search).has('sw'))) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => { /* hosted where workers are not allowed */ }));
+}
 boot();

@@ -18,6 +18,15 @@ Controls: drag to move the board, scroll or pinch to zoom, right-drag or two-fin
 it. Tap a Plot to inspect it and see the Actions you can take there. Keys: arrows/WASD, Q/E, +/−,
 R (reset view), M (menu), Esc (cancel). The game autosaves after every one of your Actions.
 
+### On the web, installed, and offline
+
+GitHub Pages serves the repository root (branch `main`, folder `/`) as the game:
+https://dreamdreams77.github.io/Hollowmere/. On a phone, use the browser's "Add to Home Screen"
+or "Install" (Chrome on Android also shows an **Install** button on the title screen). After the
+first visit the whole game is cached by `sw.js` and plays with no signal. When any shipped file
+changes, run `node tools/gen-sw.mjs` so the cache picks it up (`npm test` fails if you forget).
+The offline cache is not registered on `localhost` unless the address has `?sw=1`.
+
 ## What is in the box
 
 | Folder | What it holds |

@@ -39,6 +39,9 @@ html = html.replace(/"three": "[^"]+"/, '"three": "https://cdn.jsdelivr.net/npm/
   .replace(/"three\/addons\/": "[^"]+"/, '"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"')
   .replace('<link rel="icon" href="assets/icon.svg" type="image/svg+xml">', `<link rel="icon" href="${dataURI('assets/icon.svg', 'image/svg+xml')}" type="image/svg+xml">`)
   .replace('<link rel="stylesheet" href="styles/main.css">', '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&display=block">\n<link rel="stylesheet" href="styles/main.css">');
+// The artifact host is a single page without its own app scope: drop the install links there
+// (the GitHub Pages copy, served from the repository as it is, keeps them and works offline).
+html = html.replace(/<link rel="manifest"[^>]*>\n?/, '').replace(/<link rel="apple-touch-icon"[^>]*>\n?/, '');
 fs.writeFileSync(path.join(out, 'index.html'), html);
 const files = [];
 const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else files.push(path.relative(out, p)); } };

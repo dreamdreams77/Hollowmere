@@ -156,9 +156,9 @@ export function value(s, h) {
   if (!me.dynasty && me.coffer.R) v += Math.min(me.coffer.R, 2) * 0.15 * w.dynasty * endFade;
 
   // 6. Heir: a revealed Genuine Heir scores at the end; a known one can be revealed.
-  if (me.heir.status === 'G' && me.heir.revealed) v += w.heir * C.genuineHeirEndRenown;
-  else if (me.heir.status === 'G' && me.heir.knownBy.includes(h)) v += w.heir * C.genuineHeirEndRenown * 0.7;
-  else if (H.vigil && !me.heir.knownBy.includes(h)) v += w.heir * 0.5 * (me.married ? 0.2 : 0.36) * C.genuineHeirEndRenown;
+  if (me.heir.status === 'G' && me.heir.revealed) v += w.heir * E.heirEndRenown(s, me);
+  else if (me.heir.status === 'G' && me.heir.knownBy.includes(h)) v += w.heir * E.heirEndRenown(s, me) * 0.7;
+  else if (H.vigil && !me.heir.knownBy.includes(h)) v += w.heir * 0.5 * (me.married ? 0.2 : 0.36) * E.heirEndRenown(s, me);
 
   // 7. Cards in hand.
   v += w.rite * me.rites.length * (H.riteRenown ? 1.4 : 0.45) * Math.min(1, left / 2);
@@ -252,8 +252,8 @@ export function rankActions(state, h = state.turn, { noise = level(state).noise,
     if (a.type === 'raid') {
       const tgt = state.houses[a.target];
       const def = E.legionsOn(state, a.to, a.target);
-      const att = Math.min(a.n, 3) + (HOUSES[me.name].skirmish || 0);
-      const dm = def ? Math.min(def, 3) + (HOUSES[tgt.name].skirmish || 0) : 0;
+      const att = Math.min(a.n, 3) + E.skirmishMod(state, me.name, true);
+      const dm = def ? Math.min(def, 3) + E.skirmishMod(state, tgt.name, false) : 0;
       const p = def ? skirmishWin(att, dm) : 1;
       const sw = applyOn(base, a, h, { skirmish: 'win' });
       const sl = def ? applyOn(base, a, h, { skirmish: 'lose' }) : null;
@@ -377,8 +377,8 @@ export function explainAction(state, h, a) {
     case 'muster': why.push(`Guards ${P(a.plot)}: Raiders there would face ${E.legionsOn(state, a.plot, h) + 1} Legion${E.legionsOn(state, a.plot, h) ? 's' : ''}`); break;
     case 'raid': {
       const tgt = state.houses[a.target]; const def = E.legionsOn(state, a.to, a.target) + (state.rules === 'expanded' && state.plots[a.to - 1].walls === a.target ? 1 : 0);
-      const att = Math.min(a.n + E.legionsOn(state, a.to, h), 3) + (HOUSES[me.name].skirmish || 0);
-      const p = def ? skirmishWin(att, Math.min(def, 3) + (HOUSES[tgt.name].skirmish || 0)) : 1;
+      const att = Math.min(a.n + E.legionsOn(state, a.to, h), 3) + E.skirmishMod(state, me.name, true);
+      const p = def ? skirmishWin(att, Math.min(def, 3) + E.skirmishMod(state, tgt.name, false)) : 1;
       why.push(def ? `${Math.round(p * 100)}% chance to win the Skirmish at ${P(a.to)}` : `${P(a.to)} is undefended: a sure capture`);
       if (E.pactWith(state, h, a.target)) why.push(me.betrothed === a.target ? 'Betrays the House your line married into: −2 Renown, −3 Favor, and the whole river will shun you' : 'Breaks your Pact: −1 Renown, −2 Favor, and every House will trust you less');
       break;
@@ -392,7 +392,7 @@ export function explainAction(state, h, a) {
     case 'betroth': why.push(`${state.houses[a.target].human ? 'They will answer for themselves' : E.betrothAccepts(state, a.target, h) ? 'Likely to be accepted' : 'Likely to be refused'}: +1 Renown each, your Pact with ${dnOf(state.houses[a.target])} lasts the game, and each House learns the other's Heir`); why.push(HOUSES[me.name].vigil ? 'Rosenvael pays no dowry' : 'Dowry: 2 Coin to them'); break;
     case 'investigate': why.push('Draws an Investigation card'); break;
     case 'vigil': why.push('Learns whether your Heir is Genuine (and replaces one Impostor by marriage)'); break;
-    case 'reveal': why.push('Your Genuine Heir will score 4 Renown at the end'); break;
+    case 'reveal': why.push(`Your Genuine Heir will score ${E.heirEndRenown(state, me)} Renown at the end`); break;
     case 'seal': why.push('About 4 in 5 Heirs are Impostors: an exposure is worth 2 Renown'); break;
     case 'rite': { const r = riteById[a.rite]; why.push(`${r.name}: ${r.text}`); why.push(`Ember Pressure goes to ${state.pressure + E.riteMaker(me, r)}${state.pressure + E.riteMaker(me, r) >= CONFIG_D.pressureThreshold ? ' — at a Flood the heaviest caster loses a marker' : ''}`); break; }
     case 'pass': why.push(me.coffer.C ? 'Costs 1 Coin and does nothing' : 'Does nothing'); break;

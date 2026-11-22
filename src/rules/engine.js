@@ -61,6 +61,8 @@ export function newGame({ houses, humans = [], seed = Date.now(), seatOrder = nu
     let seatPlots = PLOTS.filter((p) => p.seat === h.seat).map((p) => p.id);
     if (HOUSES[h.name].oneMarker) seatPlots = [seatPlots.slice().sort((a, b) => pips(plotById(b).n) - pips(plotById(a).n) || a - b)[0]];
     for (const pid of seatPlots) { addMarker(state, pid, h.i, 1); addLegion(state, pid, h.i, 1); }
+    // X9 (balance): Briarkeep, the oldest seat on the river, starts behind walls (Rosenvael only).
+    if (rules === 'expanded' && HOUSES[h.name].oneMarker) for (const pid of seatPlots) state.plots[pid - 1].walls = h.i;
     // Setup step 4: two Rite cards.
     for (let k = 0; k < C.riteOpeningHand; k++) drawRite(state, h);
   }
@@ -76,6 +78,15 @@ function newLord(state, house, given) {
   return { given: given || R.pick(state.rng, L.given), epithet: R.pick(state.rng, EPITHETS), trait: R.pick(state.rng, TRAIT_IDS), since: state.season || 1 };
 }
 export const expanded = (state) => state.rules === 'expanded';
+// A House's Skirmish modifier. Expanded rules X9 (balance): Emberlain's +1 and Ostrander's -1 count
+// only when that House attacks (with Raids common, they otherwise decided too many defences too).
+// X9: a proven Rosenvael line is worth 6 at the end, not 4; and Rosenvael may Muster from Season 2.
+export const heirEndRenown = (state, house) => C.genuineHeirEndRenown + (expanded(state) && HOUSES[house.name].vigil ? 2 : 0);
+export const musterFrom = (state, house) => { const f = HOUSES[house.name].musterFrom; return f && expanded(state) ? Math.min(f, 2) : f; };
+export function skirmishMod(state, name, attacking) {
+  const m = HOUSES[name].skirmish || 0;
+  return expanded(state) && !attacking ? 0 : m;
+}
 export function shiftRegard(state, from, toward, d) {
   if (from === toward || from == null || toward == null) return;
   const r = state.houses[from].regard; r[toward] = Math.max(-5, Math.min(5, (r[toward] || 0) + d));
@@ -142,7 +153,7 @@ function formBetrothal(state, a, b) {
   for (const [x, y] of [[A, b], [B, a]]) { const p = x.pacts.find((q) => q.with === y); if (p) p.until = BETROTH_LIFE; else x.pacts.push({ with: y, until: BETROTH_LIFE }); }
   if (!A.heir.knownBy.includes(b)) A.heir.knownBy.push(b);
   if (!B.heir.knownBy.includes(a)) B.heir.knownBy.push(a);
-  gainRenown(state, a, 1, 'Betrothal'); gainRenown(state, b, 1, 'Betrothal');
+  for (const x of [A, B]) gainRenown(state, x.i, HOUSES[x.name].vigil ? 2 : 1, 'Betrothal');   // X9: the oldest blood is worth more
   shiftRegard(state, a, b, 2); shiftRegard(state, b, a, 2);
   log(state, a, `${heirName(state, A)} of ${dn(A.name)} is betrothed to ${heirName(state, B)} of ${dn(B.name)}. Their Pact now lasts the rest of the game, and each House knows the truth of the other's Heir.`, 'court');
   fx(state, { t: 'betrothal', h: a, with: b });
@@ -233,7 +244,7 @@ function newHeir(state, house) {
 }
 
 // Cost helpers that depend on the House.
-export function musterCost(house) { return HOUSES[house.name].muster || { I: 2, G: 1 }; }
+export function musterCost(house, state = null) { void state; return HOUSES[house.name].muster || { I: 2, G: 1 }; }
 // Caddoc may pay Reed for any part of a Lore cost: every split of the Lore between Lore and Reed.
 function loreSplits(house, cost) {
   if (!HOUSES[house.name].reedForLore || !cost.L) return [cost];
@@ -305,8 +316,8 @@ export function whyNot(state, h, type) {
       if (type === 'keep') return mine.length ? 'Every Plot you hold already has a Keep.' : 'You hold no Plot.';
       return mine.length ? 'No empty Plot touches one of yours.' : 'You hold no Plot to build from.';
     case 'muster':
-      if (H.musterFrom && state.season < H.musterFrom) return `${dn(house.name)} cannot Muster before Season ${H.musterFrom}.`;
-      if (!canPay(house, musterCost(house))) return `Needs ${costText(musterCost(house))}.`;
+      if (musterFrom(state, house) && state.season < musterFrom(state, house)) return `${dn(house.name)} cannot Muster before Season ${musterFrom(state, house)}.`;
+      if (!canPay(house, musterCost(house, state))) return `Needs ${costText(musterCost(house, state))}.`;
       return `Every Plot you hold already has ${C.legionCapPerPlot} Legions.`;
     case 'raid':
       if (house.coffer.I < 1) return 'Needs 1 Iron.';
@@ -386,8 +397,8 @@ export function optionsFor(state, h, type) {
       for (const pid of mine) if (markersOn(state, pid, h) < C.keepCap) out.push({ type, plot: pid });
       break;
     case 'muster':
-      if (H.musterFrom && state.season < H.musterFrom) break;
-      if (!canPay(house, musterCost(house))) break;
+      if (musterFrom(state, house) && state.season < musterFrom(state, house)) break;
+      if (!canPay(house, musterCost(house, state))) break;
       for (const pid of mine) if (legionsOn(state, pid, h) < C.legionCapPerPlot) out.push({ type, plot: pid });
       break;
     case 'raid': {
@@ -554,7 +565,7 @@ export function applyAction(state, action, opts = {}) {
       log(state, h, `${me} raises a Keep at ${P(action.plot)}.`); fx(state, { t: 'keep', h, plot: action.plot });
       break;
     case 'muster':
-      pay(house, musterCost(house)); addLegion(state, action.plot, h);
+      pay(house, musterCost(house, state)); addLegion(state, action.plot, h);
       log(state, h, `${me} musters a Legion at ${P(action.plot)}.`); fx(state, { t: 'muster', h, plot: action.plot });
       break;
     case 'raid': resolveRaid(state, h, action, opts); break;
@@ -713,7 +724,7 @@ function resolveRaid(state, h, a, opts) {
     fx(state, { t: 'raid', h, from: a.from, to: a.to, target: tgt, n: a.n, defended: false, won: true });
     return;
   }
-  const am = HOUSES[house.name].skirmish || 0, dm = HOUSES[state.houses[tgt].name].skirmish || 0;
+  const am = skirmishMod(state, house.name, true), dm = skirmishMod(state, state.houses[tgt].name, false);
   const already = legionsOn(state, a.to, h);   // R26: the raider's Legions already on the Plot fight too
   const rolls = [];
   let won = false;
@@ -1157,7 +1168,7 @@ export function standings(state) {
 
 function endGame(state) {
   // A revealed Genuine Heir scores 4 (D4). One that already took the Dynasty counts as revealed (R23). Once per House.
-  for (const h of state.houses) if ((h.heir.revealed && h.heir.status === 'G') || h.heirsCrowned) gainRenown(state, h.i, C.genuineHeirEndRenown, 'Genuine Heir');
+  for (const h of state.houses) if ((h.heir.revealed && h.heir.status === 'G') || h.heirsCrowned) gainRenown(state, h.i, heirEndRenown(state, h), 'Genuine Heir');
   const st = standings(state);
   const top = st[0];
   const winners = st.filter((x) => x.renown === top.renown && x.markers === top.markers && x.wealth === top.wealth).map((x) => x.i);
