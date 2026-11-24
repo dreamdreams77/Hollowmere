@@ -18,6 +18,8 @@ import { seasonOpening, eventFlavour, floodFlavour, reachVerdict, quotesForFx, p
 
 const SAVE_KEY = 'hollowmere.save.v1', SETTINGS_KEY = 'hollowmere.settings.v1';
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+// A light tap of the phone's vibration motor (Android); nothing elsewhere, or with reduced motion.
+const buzz = (p) => { try { if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch { /* unsupported */ } };
 const costChips = (cost) => Object.entries(cost).filter(([, n]) => n).flatMap(([r, n]) => [String(n), icon(img.res(r), 'icon')]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // How hard each House is to win with, from AI-vs-AI simulation (tools/sim.mjs).
@@ -37,7 +39,7 @@ export class App {
     let savedSettings = {}; try { savedSettings = JSON.parse(store.getItem(SETTINGS_KEY) || '{}'); } catch { /* fresh */ }
     this.settings = { speed: 'normal', sound: true, music: true, quality: null, ...savedSettings };
     audio.setOn(this.settings.sound); audio.setMusic(this.settings.music);
-    this.state = null; this.me = null; this.mode = null; this.selected = null; this.lastFx = 0; this.busy = false; this.tab = 'act';
+    this.state = null; this.me = null; this.mode = null; this.selected = null; this.lastFx = 0; this.busy = false; this.tab = 'act'; this.snap = 'half'; this.logSeen = 0; this.showOff = false;
     world.on('pick', (p) => this.onPick(p)); world.on('hover', (p, e) => this.onHover(p, e));
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('resize', () => this.layoutChanged());
@@ -82,41 +84,46 @@ export class App {
           if (pick.extras.includes(name)) pick.extras = pick.extras.filter((x) => x !== name);
           else if (pick.extras.length < pick.table - 1) pick.extras.push(name);
         } else { pick.house = name; pick.extras = pick.extras.filter((x) => x !== name); }
-        paintGrid(); renderDetail();
+        paintGrid(); renderDetail(); const go = document.querySelector('.setup-go .btn.primary'); if (go) go.textContent = `Begin as ${dn(pick.house)}`;
       }, 'data-h': name },
         h('img', { src: img.shield(name), alt: '' }), h('div', { class: 'nm' }, dn(name)), h('div', { class: 'tt' }, HOUSES[name].title));
       grid.append(b);
     }
     const paintGrid = () => { for (const x of grid.children) { x.classList.toggle('sel', x.dataset.h === pick.house); const k = pick.extras.indexOf(x.dataset.h); x.classList.toggle('ally', k >= 0); x.dataset.player = k >= 0 ? `Player ${k + 2}` : ''; } };
     renderDetail();
+    const sumEl = h('span', { class: 'opt-sum' });
+    const summary = () => { sumEl.textContent = `${pick.players} Houses${pick.table > 1 ? ` · ${pick.table} players here` : ''} · ${pick.rules === 'expanded' ? 'Expanded' : 'Original'} rules · ${pick.difficulty[0].toUpperCase()}${pick.difficulty.slice(1)} rivals${pick.guided ? ' · guided' : ''}`; };
     const seg = (label, key, vals) => h('div', { class: 'setup-row' }, h('span', { class: 'it' }, label),
-      h('div', { class: 'seg' }, vals.map(([v, t]) => h('button', { class: pick[key] === v ? 'on' : '', onclick: (e) => { pick[key] = v; for (const x of e.target.parentNode.children) x.classList.toggle('on', x === e.target); this.audio.play('click'); } }, t))));
+      h('div', { class: 'seg' }, vals.map(([v, t]) => h('button', { class: pick[key] === v ? 'on' : '', onclick: (e) => { pick[key] = v; for (const x of e.target.parentNode.children) x.classList.toggle('on', x === e.target); this.audio.play('click'); summary(); if (key === 'rules') renderDetail(); } }, t))));
     const card = h('div', { class: 'title-card vellum gilt' },
       h('h1', {}, 'Hollow', h('span', {}, 'mere')),
       h('p', { class: 'subtitle' }, 'Twelve Seasons. Five Reaches. One House shall hold the river.'),
       h('div', { class: 'rule' }),
       h('div', { class: 'it' }, 'Choose your House'),
       grid, detail,
+      h('details', { class: 'options', open: !this.mobile }, h('summary', {}, h('span', { class: 'it' }, 'Game options'), sumEl),
       seg('Houses at the table', 'players', [[2, 'Two'], [3, 'Three'], [4, 'Four']]),
       h('div', { class: 'setup-row' }, h('span', { class: 'it' }, 'People at this device'), h('div', { class: 'seg' }, [1, 2, 3, 4].map((n) => h('button', { class: pick.table === n ? 'on' : '', onclick: (e) => {
         pick.table = Math.min(n, pick.players); pick.extras = pick.extras.slice(0, pick.table - 1); if (pick.table > 1) pick.guided = false;
         for (const x of e.target.parentNode.children) x.classList.toggle('on', +x.textContent === pick.table || (x.textContent === 'Just me' && pick.table === 1));
-        paintGrid(); hotHint.textContent = pick.table > 1 ? `Tap ${pick.table - 1} more House${pick.table > 2 ? 's' : ''} for the other player${pick.table > 2 ? 's' : ''}. You pass the device between turns.` : '';
+        summary(); paintGrid(); hotHint.textContent = pick.table > 1 ? `Tap ${pick.table - 1} more House${pick.table > 2 ? 's' : ''} for the other player${pick.table > 2 ? 's' : ''}. You pass the device between turns.` : '';
         this.audio.play('click'); } }, n === 1 ? 'Just me' : String(n))))),
       hotHint,
       seg('Rival Houses', 'rivals', [['random', 'Drawn by lot'], ['strong', 'Strongest Houses']]),
       seg('Rules', 'rules', [['expanded', 'Expanded: Pacts, Toil, walls'], ['original', 'Original rules']]),
       seg('Rivals play', 'difficulty', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard (sharper, richer start)']]),
-      seg('Guidance', 'guided', [[true, 'Guided first game'], [false, 'No tips']]),
+      seg('Guidance', 'guided', [[true, 'Guided first game'], [false, 'No tips']])),
       lineSlot,
-      h('div', { class: 'setup-row' },
-        h('button', { class: 'btn primary', onclick: () => { this.audio.start(); this.settings.rules = pick.rules; this.settings.difficulty = pick.difficulty; this.saveSettings(); this.newGame(pick); } }, 'Begin the first Season'),
+      h('div', { class: 'setup-go' },
+        h('button', { class: 'btn primary', onclick: () => { this.audio.start(); this.settings.rules = pick.rules; this.settings.difficulty = pick.difficulty; this.saveSettings(); this.newGame(pick); } }, `Begin as ${dn(pick.house)}`),
+        saved ? h('button', { class: 'btn blue', onclick: () => { this.audio.start(); this.load(); } }, 'Continue saved game') : null),
+      h('div', { class: 'setup-row more' },
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showScenarios(); } }, 'Scenarios'),
         window.installPrompt ? h('button', { class: 'btn', onclick: async () => { const p = window.installPrompt; window.installPrompt = null; p.prompt(); try { await p.userChoice; } catch { /* dismissed */ } this.showTitle(); } }, 'Install') : null,
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRecords(); } }, 'Records'),
-        saved ? h('button', { class: 'btn blue', onclick: () => { this.audio.start(); this.load(); } }, 'Continue saved game') : null,
         h('button', { class: 'btn', onclick: () => { this.audio.start(); this.showRules(); } }, 'How to play')),
       h('p', { class: 'small muted it' }, 'Drag to move the board, scroll or pinch to zoom, right-drag or twist to turn it.'));
+    summary();
     this.ui.append(h('div', { id: 'title' }, card));
     this.world.resetView(); this.world.camGoal.yaw = 0.35; this.world.camGoal.dist = 70;
   }
@@ -169,7 +176,10 @@ export class App {
     if (this.mobile) {
       this.el.tabs = h('div', { id: 'tabs' });
       this.el.sheetBody = h('div', { id: 'sheetBody' });
-      this.el.sheet = h('div', { id: 'sheet', class: 'vellum gilt' }, h('div', { class: 'grab' }), this.el.tabs, this.el.sheetBody);
+      const grab = h('div', { class: 'grab-zone', role: 'button', 'aria-label': 'Resize the panel', tabindex: 0, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { this.setSnap(this.snap === 'full' ? 'peek' : this.snap === 'peek' ? 'half' : 'full'); e.preventDefault(); } } }, h('div', { class: 'grab' }));
+      this.el.sheet = h('div', { id: 'sheet', class: 'vellum gilt', 'data-snap': this.snap }, grab, this.el.tabs, this.el.sheetBody);
+      this.dragSheet(grab);
+      this.el.sheet.addEventListener('transitionend', (e) => { if (e.target === this.el.sheet) this.updateSafeArea(); });
       ui.append(this.el.sheet);
     } else ui.append(this.el.mine, this.el.rivals, this.el.chron, this.el.actions);
   }
@@ -194,6 +204,7 @@ export class App {
     if (acts) y1 = Math.min(y1, acts.top - 4);
     if (mine && mine.width) x0 = mine.right + 4;
     if (riv && riv.width && riv.height) x1 = Math.min(x1, riv.left - 4);
+    document.documentElement.style.setProperty('--sheet-h', `${sheet && sheet.width >= W * 0.7 ? Math.round(H - sheet.top) : 0}px`);
     const s = { x: x0, y: y0, w: Math.max(120, x1 - x0), h: Math.max(120, y1 - y0) };
     const key = [s.x, s.y, s.w, s.h].map(Math.round).join(',');
     if (key !== this.safeKey) { this.safeKey = key; this.world.setSafeArea(s); }
@@ -210,9 +221,18 @@ export class App {
     for (let i = 0; i < CONFIG.pressureThreshold; i++) pressure.append(icon(img.flame(v.pressure >= i + 1), 'icon'));
     if (v.pressure % 1) pressure.append(h('span', { class: 'small' }, '½'));
     top.append(...[seasons,
-      h('div', { class: 'phase' }, h('b', {}, `Season ${ROMAN[v.season]} · ${look.name}`), h('span', {}, phaseTxt + (nextFlood && v.phase !== 'over' ? ` · Flood ${nextFlood === v.season ? 'this Season' : 'in Season ' + ROMAN[nextFlood]}` : ''))),
+      h('div', { class: 'phase' }, h('b', {}, `Season ${ROMAN[v.season]} · ${look.name}`), h('span', {}, this.mobile && cur && !v.pending ? `${cur.i === this.me ? 'Your turn' : dn(cur.name)} · round ${v.round + 1}/3${nextFlood ? ` · Flood ${nextFlood === v.season ? 'now' : ROMAN[nextFlood]}` : ''}` : phaseTxt + (nextFlood && v.phase !== 'over' ? ` · Flood ${nextFlood === v.season ? 'this Season' : 'in Season ' + ROMAN[nextFlood]}` : ''))),
       pressure,
       cur ? h('img', { class: 'turn-shield', src: img.shield(cur.name), alt: dn(cur.name), title: `${dn(cur.name)} to act` }) : null].filter(Boolean));
+    // phones: what you hold, always in sight (the House tab has the detail)
+    if (this.mobile && v.houses[this.me]) {
+      const me = v.houses[this.me]; const noLore = HOUSES[me.name].noLore;
+      top.append(h('div', { class: 'ledger', 'aria-label': 'Your Renown, Favor and resources' },
+        h('span', { class: 'lg-score', title: 'Renown' }, icon(img.renown(), 'icon'), h('b', {}, String(me.renown))),
+        h('span', { title: 'Favor' }, icon(img.favor(), 'icon'), String(me.favor)),
+        h('span', { class: 'lg-sep' }),
+        ...RES.filter((r) => !(noLore && r === 'L')).map((r) => h('span', { class: me.coffer[r] ? '' : 'z', title: RES_NAME[r], 'data-r': r }, icon(img.res(r), 'icon'), String(me.coffer[r])))));
+    }
   }
   heirText(x, v) {
     if (x.heir.revealed) return x.heir.status === 'G' ? 'Genuine, revealed' : 'Impostor, exposed';
@@ -273,11 +293,32 @@ export class App {
     for (const l of v.log.slice(-40)) el.append(h('p', { class: `k-${l.kind}${l.h === this.me ? ' yours' : ''}` }, l.text));
     el.scrollTop = el.scrollHeight;
   }
+  // Phones: the bottom sheet rests at three heights. Picking a Plot drops it to 'peek' so the board shows.
+  setSnap(s) { this.snap = s; if (this.el?.sheet) this.el.sheet.dataset.snap = this.effectiveSnap(); requestAnimationFrame(() => this.updateSafeArea()); }
+  effectiveSnap() { return this.mode ? 'peek' : this.snap; }
+  dragSheet(grab) {
+    let y0 = null, h0 = 0, moved = false;
+    grab.addEventListener('pointerdown', (e) => { y0 = e.clientY; h0 = this.el.sheet.getBoundingClientRect().height; moved = false; try { grab.setPointerCapture(e.pointerId); } catch { /* synthetic or lost pointer */ } this.el.sheet.classList.add('dragging'); });
+    grab.addEventListener('pointermove', (e) => { if (y0 == null) return; const dy = e.clientY - y0; if (Math.abs(dy) > 6) moved = true; this.el.sheet.style.height = `${Math.max(120, Math.min(window.innerHeight - 70, h0 - dy))}px`; });
+    const end = (e) => {
+      if (y0 == null) return; const dy = e.clientY - y0; y0 = null; this.el.sheet.classList.remove('dragging'); this.el.sheet.style.height = '';
+      if (!moved) { this.setSnap(this.snap === 'peek' ? 'half' : this.snap === 'half' ? 'full' : 'half'); return; }
+      const hNow = h0 - dy, H = window.innerHeight;
+      this.setSnap(hNow < H * 0.3 ? 'peek' : hNow < H * 0.62 ? 'half' : 'full'); buzz(8);
+    };
+    grab.addEventListener('pointerup', end); grab.addEventListener('pointercancel', end);
+  }
   renderSheet(v) {
     const tabs = clear(this.el.tabs); const body = clear(this.el.sheetBody);
-    const T = [['act', 'Actions'], ['house', 'House'], ['rivals', 'Rivals'], ['log', 'Chronicle']];
-    for (const [k, t] of T) tabs.append(h('button', { class: this.tab === k ? 'on' : '', onclick: () => { this.tab = k; this.audio.play('click'); this.renderSheet(this.view); } }, t));
+    this.el.sheet.dataset.snap = this.effectiveSnap();
+    if (this.tab === 'log') this.logSeen = v.log.length;
+    const yours = v.phase === 'actions' && v.turn === this.me && !v.pending;
+    const T = [['act', 'Actions', '⚔', yours], ['house', 'House', '⌂', false], ['rivals', 'Rivals', '⚑', false], ['log', 'Chronicle', '✒', v.log.length > this.logSeen]];
+    for (const [k, t, glyph, dot] of T) tabs.append(h('button', { class: this.tab === k ? 'on' : '', 'aria-pressed': this.tab === k, onclick: () => { this.tab = k; if (this.snap === 'peek' && !this.mode) this.snap = 'half'; this.audio.play('click'); this.renderSheet(this.view); this.updateSafeArea(); } },
+      h('span', { class: 'tg', 'aria-hidden': 'true' }, glyph), h('span', { class: 'tl' }, t), dot ? h('span', { class: 'dot', 'aria-label': k === 'log' ? 'new entries' : 'your turn' }) : null));
     const pane = h('div', { class: 'sheet-pane' }); body.append(pane);
+    this.el.sheet.classList.toggle('targeting', !!this.mode);   // picking a Plot: only the instruction and Cancel
+    if (this.mode) { this.renderActions(v, pane); return; }
     if (this.tab === 'act') this.renderActions(v, pane);
     if (this.tab === 'house') this.renderMine(v, pane);
     if (this.tab === 'rivals') this.renderRivals(v, pane);
@@ -298,16 +339,25 @@ export class App {
     if (this.mobile) cat = [...cat.filter((c) => c.ok), ...cat.filter((c) => !c.ok)];   // phones: what you can do first
     const hint = this.mode ? this.modeHint() : 'Choose an Action, or tap a Plot to see what you can do there.';
     const canUndo = this.undo && this.undo.season === v.season;
-    el.append(h('div', { class: 'act-tools' },
-      h('button', { class: 'btn small-btn', onclick: () => this.showAdvice() }, 'Advise'),
-      canUndo ? h('button', { class: 'btn small-btn', onclick: () => this.doUndo() }, `Undo ${this.undo.label}`) : null));
-    el.append(h('div', { class: 'act-head' }, h('div', { class: 'who' }, `Your Action ${v.round + 1} of 3`), h('div', { class: 'hint' }, hint, this.mode ? [' ', h('button', { class: 'btn', style: { minHeight: '34px', padding: '0 10px', fontSize: '15px' }, onclick: () => this.cancelMode() }, 'Cancel')] : null)));
+    const tools = h('div', { class: 'act-tools' },
+      canUndo ? h('button', { class: 'btn small-btn', onclick: () => this.doUndo() }, `Undo ${this.undo.label}`) : null,
+      h('button', { class: 'btn small-btn', onclick: () => this.showAdvice() }, 'Advise'));
+    const pips = h('span', { class: 'pips', 'aria-label': `Action ${v.round + 1} of 3` }, [0, 1, 2].map((i) => h('i', { class: i < v.round ? 'done' : i === v.round ? 'now' : '' })));
+    if (this.mobile) {
+      el.append(h('div', { class: 'act-bar' }, h('div', { class: 'who' }, 'Your Action ', pips), tools));
+      el.append(h('div', { class: `act-hint${this.mode ? ' live' : ''}` }, hint, this.mode ? h('button', { class: 'btn small-btn', onclick: () => this.cancelMode() }, 'Cancel') : null));
+    } else {
+      el.append(tools);
+      el.append(h('div', { class: 'act-head' }, h('div', { class: 'who' }, `Your Action ${v.round + 1} of 3`), h('div', { class: 'hint' }, hint, this.mode ? [' ', h('button', { class: 'btn', style: { minHeight: '34px', padding: '0 10px', fontSize: '15px' }, onclick: () => this.cancelMode() }, 'Cancel')] : null)));
+    }
     const grid = h('div', { class: 'act-grid' });
     const costOf = {
       build: CONFIG.buildCost, keep: CONFIG.buildCost, muster: E.musterCost(me, this.state), raid: { I: 1 }, recapture: CONFIG.recaptureCost,
       trade: null, favor: {}, investigate: E.investigateCosts(me)[0], play: {}, seal: { L: 1 }, reveal: null, rite: null, dynasty: { R: 2 }, cabal: { C: 1 }, vigil: { C: 1 }, toil: {}, fortify: E.FORTIFY_COST, betroth: H.vigil ? {} : { C: E.BETROTH_DOWRY }, envoy: H.vigil ? {} : { C: 1 }, pass: me.coffer.C ? { C: 1 } : {},
     };
     const extra = { trade: `${E.tradeRate(me)} for 1`, reveal: '2 Favor', rite: 'card cost', dynasty: `${E.dynastyFavor(me)} Favor +`, favor: 'free', play: 'free', investigate: H.investigateCost && !Object.keys(H.investigateCost).length ? 'free' : null };
+    const off = this.mobile ? cat.filter((c) => !c.ok) : [];
+    if (this.mobile && !this.showOff) cat = cat.filter((c) => c.ok);
     for (const c of cat) {
       const cost = costOf[c.type];
       const b = h('button', { class: `btn act${c.ok ? '' : ' off'}${this.mode?.type === c.type ? ' pending' : ''}`, 'aria-disabled': !c.ok, title: c.ok ? this.actionHelp(c.type) : c.reason,
@@ -316,6 +366,8 @@ export class App {
       grid.append(b);
     }
     el.append(grid);
+    if (off.length) el.append(h('button', { class: 'btn link-btn', 'aria-expanded': this.showOff, onclick: () => { this.showOff = !this.showOff; this.renderSheet(this.view); } },
+      this.showOff ? 'Hide what you cannot do now' : `Not available now (${off.length}): see why`));
   }
   actionHelp(t) {
     return {
@@ -338,7 +390,7 @@ export class App {
   }
 
   // ------------------------------------------------------------------ choosing actions
-  deny(reason) { this.audio.play('deny'); this.toast(reason || 'Not available now.'); }
+  deny(reason) { this.audio.play('deny'); buzz([12, 40, 12]); this.toast(reason || 'Not available now.'); }
   cancelMode() { this.mode = null; this.world.setSelection({ targets: [] }); this.refresh(); }
   chooseType(type, options) {
     this.audio.play('click');
@@ -401,6 +453,7 @@ export class App {
     }
   }
   async act(action) {
+    buzz(10);
     const s = this.state;
     if (!s || s.turn !== this.me || s.pending || this.busy || this.presenting || s.phase !== 'actions') { this.deny('Wait for your turn.'); return; }
     const chk = E.checkAction(this.state, action);
@@ -418,7 +471,7 @@ export class App {
     this.loop();
   }
   bumpCoffer(before) {
-    requestAnimationFrame(() => { for (const el of document.querySelectorAll('.coffer div')) if (before[el.dataset.r] !== this.state.houses[this.me].coffer[el.dataset.r]) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } });
+    requestAnimationFrame(() => { for (const el of document.querySelectorAll('.coffer div, .ledger [data-r]')) if (before[el.dataset.r] !== this.state.houses[this.me].coffer[el.dataset.r]) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } });
   }
 
   // ------------------------------------------------------------------ game loop and presentation
